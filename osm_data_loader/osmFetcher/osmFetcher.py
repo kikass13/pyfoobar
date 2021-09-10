@@ -47,7 +47,7 @@ def main(rulePath, osmPath):
 
 	### DEBUG STUFF
 	#
-	import ImageDraw
+	from PIL import ImageDraw
 	
 	ORIGINX = 60243796
 	ORIGINY = 508306145

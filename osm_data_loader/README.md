@@ -6,12 +6,20 @@
 
 * sudo pip2 install osmium
 * sudo pip2 install pyshp
+* sudo pip2 install utm
 * sudo pip2 install mapnik
+ * or follow https://github.com/mapnik/mapnik/wiki/UbuntuInstallation
+   * or do
+     * `git submodule update --init --recursive`
+     * `cd python-mapnik`
+     * `sudo apt install libpython2.7 && sudo apt install libboost-python-dev && sudo apt install clang`
+     * ` ### check permission of /usr/local/lib/python3/dist-packages` 
+     * `export MASON_BUILD=true && python setup.py install`
 
+  
 ## Usage
 
-* ```python osmFetcher/osmFetcher.py test.nikrulez pz_eifeltor.osm```
-
+* ```python2 osmFetcher/osmFetcher.py test.nikrulez pz_eifeltor.osm```
 
 
 ### .nikrulez 
