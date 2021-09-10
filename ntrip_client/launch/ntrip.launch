@@ -1,0 +1,10 @@
+<launch>
+<node pkg="ntrip_client" name="ntrip_client" type="ntrip_client" output="screen"> 
+	<param name="mountpoint" type="string" value="VRS_3_4G_NW" />
+	<param name="caster_ip" type="string" value="195.227.70.119" />
+	<param name="caster_port" type="int" value="2101" />
+	<param name="ntrip_username" type="string" value="" />
+	<param name="ntrip_password" type="string" value="" />
+</node>
+
+</launch>

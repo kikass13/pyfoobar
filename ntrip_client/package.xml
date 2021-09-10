@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="2">    
+    <name>ntrip_client</name>
+    <version>1.0.0</version>
+    <description>ntrip_client</description>
+    <maintainer email="">xxx</maintainer>
+    <author email="">Nick Fiege</author>
+
+    <buildtool_depend>catkin</buildtool_depend>
+
+    <!-- ros dependencys -->
+    <depend>rospy</depend>
+    
+
+</package>

@@ -1,0 +1,79 @@
+
+
+features:
+  node:
+    - barrier: f['barrier']
+  way:
+    - site : f['site_type']=='DHL'
+    - road : f['highway']=='service' or f['highway']=='road'
+    - path : f['highway']=='path'
+    - street : f['highway']
+  area:
+    - building_big: f['building'] and int(f['building:levels']) > 8 
+    - building_medium: f['building'] and int(f['building:levels']) > 2
+    - building_small: f['building'] and int(f['building:levels'])  > 0
+    - building: f['building']
+    - water: f['natural'] == 'water'
+
+properties:
+  srs: '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'
+  width: 5000
+  height: 2500
+  background: Color(255,255,255,1)
+
+
+renderings:
+  - target: path
+    define:
+      stroke : Color(128,128,128)
+      #stroke_opacity : 1.0
+      stroke_width : 12.0
+      draw : line
+
+  - target: road
+    define:
+      stroke : Color(128,128,128)
+      #stroke_opacity : 0.3
+      stroke_width : 6.0
+      draw : line
+
+  - target: street
+    define:
+      stroke : Color(128,128,128)
+      #stroke_opacity : 1.0
+      stroke_width : 6.0
+      draw : line
+
+  - target: water
+    define:
+      stroke : Color('lightsteelblue')
+      fill : Color('lightsteelblue')
+      fill_opacity : 0.5
+      stroke : Color('lightgrey')
+      stroke_opacity : 1.0
+      stroke_width : 1.0
+      draw : poly
+
+  - target: building_big
+    define:
+      fill : Color(2, 126, 255)
+      #fill_opacity : 0.7
+      draw : building
+
+  - target: building_medium
+    define:
+      fill : Color(2, 126, 255)
+      #fill_opacity : 0.7
+      draw : building
+
+  - target: building_small
+    define:
+      fill : Color(2, 126, 255)
+      #fill_opacity : 0.7
+      draw : building
+
+  - target: building
+    define:
+      fill : Color(2, 126, 255)
+      #fill_opacity : 0.7
+      draw : building

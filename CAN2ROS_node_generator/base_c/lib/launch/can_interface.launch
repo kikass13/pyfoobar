@@ -1,0 +1,5 @@
+<launch>
+<param name="/can_interface/device" type="str" value="can0" />
+<node pkg="can_interface" type="can_interface_node" name="can_interface_node" output="screen"/>
+
+</launch>
