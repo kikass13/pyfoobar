@@ -747,18 +747,17 @@ FILE_ENDING_CONFIGURATION_DATABASE = "db"
 FILE_ENDING_CONFIGURATION_SPECIFICS = "specs"
 FILE_ENDING_CONFIGURATION_CONVERSION_RULESETS = "rules"
 
-def createConfigurationFiles(pkg, db, nsList):
+def createConfigurationFiles(pkg, db, dbFiles, nsList):
 	pre = outputdir
 	configFileName = "%s/%s.%s" % (pre, pkg, FILE_ENDING_CONFIGURATION)
 	dbFileName = "%s/%s.%s" % (pre, pkg, FILE_ENDING_CONFIGURATION_DATABASE)
 	specificsFileName = "%s/%s.%s" % (pre, pkg, FILE_ENDING_CONFIGURATION_SPECIFICS)
 	rulesetsFileName = "%s/%s.%s" % (pre, pkg, FILE_ENDING_CONFIGURATION_CONVERSION_RULESETS)
 
-
 	# write out db file
-	f = open(dbFileName,"wb")
-	pickle.dump(db,f, protocol=2)
-	f.close()
+	# f = open(dbFileName,"wb")
+	# pickle.dump(db,f, protocol=2)
+	# f.close()
 
 	# write out specifics file
 	with open(specificsFileName, 'w') as file:
@@ -767,7 +766,7 @@ def createConfigurationFiles(pkg, db, nsList):
 		file.write(j)
 	# write out configuration file
 	with open(configFileName, 'w') as file:
-		dataDict = {"packagename" : pkg, "database" : dbFileName, "specifics" : specificsFileName, "rulesets": rulesetsFileName}
+		dataDict = {"packagename" : pkg, "database" : dbFiles, "specifics" : specificsFileName, "rulesets": rulesetsFileName}
 		j = json.dumps(dataDict, indent=4)
 		file.write(j)
 	# write out conversions file
@@ -786,11 +785,12 @@ def openConfiguration(configFilePath):
 
 	if(packagename and databaseFile and specificsFile and rulesetsFile):
 		# reinterpretate that data
-		database = pickle.load( open( databaseFile, "rb" ) )
+		# database = pickle.load( open( databaseFile, "rb" ) )
+		files = databaseFile
 		specifics = json.load(open(specificsFile, 'r'))
 		rulesets = json.load(open(rulesetsFile, 'r'))
 
-	return paths, packagename, database, specifics, rulesets
+	return paths, packagename, files, specifics, rulesets
 
 
 class Mode(Enum):
@@ -820,11 +820,10 @@ def main():
 		print("Please give .dbc or .config files as input parameters")
 		sys.exit(1)
 
-
+	dbList = {}
 	# check our mode and then do your thing
 	if(mode == Mode.CREATE_CONFIGURATION):
 		# prepare all file objects
-		dbList = {}
 		for file in files:
 			filename, file_extension = os.path.splitext(file)
 			if(file_extension == file_ending):
@@ -841,18 +840,37 @@ def main():
 			### so we want to cut the prefix stuff away > os.path.basename does that for paths
 			ns = [os.path.basename(ns) for num_msg in database.messages]
 			msg_namespaces.extend(ns)
-
 		#try to repair broken signals (arrays use same signal names for example)
 		print("#Reparing ...")
 		tryToRepairBrokenDb(total_database)
 		print("#Creating Configuration ...")
 		createOutputDir()
-		createConfigurationFiles(packagename, total_database, msg_namespaces)
+		createConfigurationFiles(packagename, total_database, files, msg_namespaces)
 
 	elif(mode == Mode.GENERATE_ROS):
 		if(configurationFile):
 			#load configuration files and grab necessary information
-			paths, packagename, database, msg_specifics, rulesets = openConfiguration(configurationFile)
+			paths, packagename, files, msg_specifics, rulesets = openConfiguration(configurationFile)
+
+			for file in files:
+				filename, file_extension = os.path.splitext(file)
+				if(file_extension == file_ending):
+					db = cantools.db.load_file(file)
+					dbList[filename] = db
+
+			# combine all db object in one database
+			total_database = cantools.database.Database()
+			# list of name space for msgs
+			msg_namespaces = []
+			for ns, database in dbList.items():
+				total_database.messages.extend(database.messages)
+				### the namespace could contain .dbc paths (dbc/myRandomDbcFile.dbc)
+				### so we want to cut the prefix stuff away > os.path.basename does that for paths
+				ns = [os.path.basename(ns) for num_msg in database.messages]
+				msg_namespaces.extend(ns)
+			#try to repair broken signals (arrays use same signal names for example)
+			print("#Reparing ...")
+			tryToRepairBrokenDb(total_database)
 
 			#create ros package (dirs and files)
 			print("#Creating relevant files from base ...")
