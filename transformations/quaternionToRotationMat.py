@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 def quaternion_rotation_matrix(Q):
     """
@@ -41,10 +42,10 @@ def quaternion_rotation_matrix(Q):
     return rot_matrix
 
 
-qx=-9.831786116506691e-06
-qy=-0.0007808071928736424
-qz=-8.674308465645774e-05
-qw=0.9999996913595027
+if __name__ == '__main__':
+    import eulerAnglesToQuat
 
-Q = [qx,qy,qz,qw]
-print(quaternion_rotation_matrix(Q))
+    deg = 45.0
+    rad = deg * math.pi / 180.0
+    Q = eulerAnglesToQuat.get_quaternion_from_euler(0,0,rad)
+    print(quaternion_rotation_matrix(Q))

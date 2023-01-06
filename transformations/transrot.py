@@ -2,6 +2,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 import numpy as np
+import math
 
 def printP(p):
     print("x: %s, y: %s, z: %s" % (p[0], p[1], p[2]))
@@ -28,18 +29,21 @@ trafo= [
 newp = transform(p, trafo)
 printP(newp)
 ### rotation via rotation matrix
-R = [
-    [-9.99998780e-01,  1.97990254e-05, -1.56161220e-03],
-    [-1.95281069e-05, -9.99999985e-01, -1.73501469e-04],
-    [-1.56161561e-03, -1.73470762e-04,  9.99998766e-01]
-]
+import quaternionToRotationMat
+import eulerAnglesToQuat
+deg = 10.0
+rad = deg * math.pi / 180.0
+Q = eulerAnglesToQuat.get_quaternion_from_euler(0,0,rad)
+print("Q: %s" % Q)
+R = quaternionToRotationMat.quaternion_rotation_matrix(Q)
+print("R:\n%s" % R)
 trafo= [
     [R[0][0],R[0][1],R[0][2], 0],
     [R[1][0],R[1][1],R[1][2], 0],
     [R[2][0],R[2][1],R[2][2], 0],
     [0,      0,      0,       1]
 ]
-rotp = transform(p, trafo)
+rotp = transform(newp, trafo)
 printP(rotp)
 
 ### plot everything
