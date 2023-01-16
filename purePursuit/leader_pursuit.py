@@ -4,6 +4,7 @@ import numpy as np
 import math
 import os
 import time
+import random
 import matplotlib.pyplot as plt
 
 import pid.Pid as pid
@@ -59,6 +60,29 @@ class State:
     def __repr__(self) -> str:
         return "State[%s, %s, yaw=%s, v=%s]" % (self.x, self.y, self.yaw, self.v)
 
+class Obstacle :
+    def __init__(self, center, size):
+        self.center = center
+        self.size = size
+        self.rect = self.calcRect()
+    def calcRect(self):
+        self.l = self.center.x - self.size/2.0 #left
+        self.r = self.center.x + self.size/2.0 #right
+        self.u = self.center.y + self.size/2.0 #up
+        self.b = self.center.y - self.size/2.0 #bottom
+        return [
+            Point(self.r, self.u),
+            Point(self.r, self.b),
+            Point(self.l, self.b),
+            Point(self.l, self.u),
+            ### extra point for drawing
+            Point(self.r, self.u),
+        ]
+    def contains(self, p):
+        for edge in self.rect:
+            if p.x > self.l and p.x < self.r and p.y > self.b and p.y < self.u:
+                return True
+        return False
 class Point:
     def __init__(self, x, y):
         self.x = x
@@ -137,8 +161,14 @@ class DubinsShortesPath(Path):
                                                             vehicle_max_curvature)
         for px, py in zip(x,y):
             self.waypoints.append(Point(px, py)) 
-        
-def pure_pursuit_steer_control(state, path):
+
+def check_path_for_collision(path, obstacles):
+    for p in path.waypoints:
+        for o in obstacles:
+            if o.contains(p):
+                return True
+    return False
+def prepare_path_point(state, path):
     ### calculate lookahead distance
     # Lf = k * state.v + Lfc
     current = Point(state.x, state.y)
@@ -152,12 +182,12 @@ def pure_pursuit_steer_control(state, path):
     nearestPoint = path.pointAtDist(current, Lfc)
     ### find nearest path point to lookahead
     # nearestPoint = path.findNearest(lookahead)
-    ### pure pursuit control
-    alpha = math.atan2(nearestPoint.y - state.rear_y, nearestPoint.x - state.rear_x) - state.yaw
+    return nearestPoint
+        
+def pure_pursuit_steer_control(state, nextPoint):
+    alpha = math.atan2(nextPoint.y - state.rear_y, nextPoint.x - state.rear_x) - state.yaw
     delta = math.atan2(2.0 * state.wb * math.sin(alpha) / Lfc, 1.0)
-    return delta, nearestPoint
-
-
+    return delta, nextPoint
 
 def plot_arrow(x, y, yaw, length=1.0, width=0.5, fc="r", ec="k"):
     if not isinstance(x, float):
@@ -168,7 +198,7 @@ def plot_arrow(x, y, yaw, length=1.0, width=0.5, fc="r", ec="k"):
                   fc=fc, ec=ec, head_width=width, head_length=width)
         plt.plot(x, y)
 
-def plot(state, leader, path, target):
+def plot(state, leader, path, target, obstacles):
     plt.cla()
     # for stopping simulation with the esc key.
     plt.gcf().canvas.mpl_connect(
@@ -179,6 +209,12 @@ def plot(state, leader, path, target):
     path.plot(plt)
     # plt.plot(states.x, states.y, "-b", label="trajectory")
     plt.plot(target.x, target.y, "xg", label="target")
+    obstacleY = [o.center.y for o in obstacles]
+    oSize = [o.size for o in obstacles]
+    for o in obstacles:
+        x = [p.x for p in o.rect]
+        y = [p.y for p in o.rect]
+        plt.plot(x, y, "-")
     ax = plt.gca()
     ax.set_xlim([leader.x-10.0, leader.x+10.0])
     ax.set_ylim([leader.y-10.0, leader.y+10.0])
@@ -196,7 +232,15 @@ def main():
     course = []
     for px,py in zip(cx, cy):
         course.append(Point(px,py))
-
+    ### obstacles on target course
+    random.seed(1)
+    obstacles = []
+    for i in range(0,50):
+        randx = -5 + random.random() * (30- -5)
+        randy = -5 + random.random() * (30- -5)
+        randSize = 0.1 + random.random() * (4-0.1)
+        obstacles.append(Obstacle(Point(randx, randy), randSize))
+    
     ### initial state
     state = State(x=0.0, y=-2.0, yaw=1.5, v=0.0, wb=vehicle_WB)
     leader = State(x=2.0, y=0.0, yaw=0.0, v=4.0, wb=leader_WB)
@@ -205,21 +249,35 @@ def main():
     controller = pid.Pid(pidParams)
     dt = 0.02
     while leader:
-        ### calc path to target
-        path = GoalOnlyPseudoPath(state, leader)
-        # path = LinearPath(state, leader)
-        path = DubinsShortesPath(state, leader, state.yaw, leader.yaw)
-        
+        ### sanity check for distance
+        distance = np.linalg.norm(Point(leader.x, leader.y).np()-Point(state.x, state.y).np())
+        if distance > 5.0:
+            print("leader too far away, doing nothing")
+        else:
+            ### calc path to target
+            # path = GoalOnlyPseudoPath(state, leader)
+            # path = LinearPath(state, leader)
+            path = DubinsShortesPath(state, leader, state.yaw, leader.yaw)
 
-        di, currentTargetPoint = pure_pursuit_steer_control(state, path)
+            ### check if path is blocked
+            collision = check_path_for_collision(path, obstacles)
 
-        ### speed controlled
-        # error = leader.v - state.v 
-        ### dist controlled, stay 2m behind target
-        error = np.linalg.norm(Point(leader.x, leader.y).np()-Point(state.x, state.y).np()) - 2.0
-        ### Calc control input
-        ai = controller(error, dt)
-        
+            if not collision:
+                ### choose next point
+                nextPoint = prepare_path_point(state, path)
+
+                ## pure pursuit
+                di, currentTargetPoint = pure_pursuit_steer_control(state, nextPoint)
+
+                ### speed controlled
+                # error = leader.v - state.v 
+                ### dist controlled, stay 2m behind target
+                error = distance - 2.0
+                ### Calc control input
+                ai = controller(error, dt)
+            else:
+                ai = -10.0
+
         ### update states
         ### leader update dynamically
         # leader.update(0.0, 0.1, dt)
@@ -236,8 +294,9 @@ def main():
         state.update(ai, di, dt) ### follower update
         # print("vehicle: %s" % state)
         # print("leader : %s" % leader)
-        plot(state, leader, path, currentTargetPoint)
+        plot(state, leader, path, currentTargetPoint, obstacles)
         time.sleep(dt)
+        
 if __name__ == '__main__':
     print("Pure pursuit path tracking simulation start")
     main()
