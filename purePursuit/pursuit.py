@@ -11,8 +11,8 @@ import math
 import matplotlib.pyplot as plt
 
 # Parameters
-k = 0.1  # look forward gain
-Lfc = 2.0  # [m] look-ahead distance
+k = 1  # look forward gain
+Lfc = 5.0  # [m] look-ahead distance
 Kp = 1.0  # speed proportional gain
 dt = 0.1  # [s] time tick
 WB = 2.9  # [m] wheel base of vehicle
