@@ -10,9 +10,9 @@ import matplotlib.pyplot as plt
 import pid.Pid as pid
 
 # Parameters
-k = 0.0001  # look forward gain
-Lfc = 2.0  # [m] look-ahead distance
-Lfs = 1.0  # [s] look-ahead time ## currently unused
+Lfc = 2.0  # [m] minimum look-ahead distance
+Lfs = 1.0  # [s] look-ahead time
+k = 1.0 # velocity lookahead distance gain 
 ### for speed control
 # Kp = 1.0  # proportional gain
 # Ki = 0.01  # integral gain
@@ -168,9 +168,7 @@ def check_path_for_collision(path, obstacles):
             if o.contains(p):
                 return True
     return False
-def prepare_path_point(state, path):
-    ### calculate lookahead distance
-    # Lf = k * state.v + Lfc
+def prepare_path_point(state, path, lookaheadDist):
     current = Point(state.x, state.y)
     ### project lookahead point by lookahead time and current yaw (max lookahead distance)
     # d = min(state.v * Lfs, Lfc)
@@ -179,14 +177,14 @@ def prepare_path_point(state, path):
     # lookahead = projected + current
     # print("lookahead: %s" % lookahead)
     ### project lookahead point relative to path
-    nearestPoint = path.pointAtDist(current, Lfc)
+    nearestPoint = path.pointAtDist(current, lookaheadDist)
     ### find nearest path point to lookahead
     # nearestPoint = path.findNearest(lookahead)
     return nearestPoint
         
-def pure_pursuit_steer_control(state, nextPoint):
+def pure_pursuit_steer_control(state, nextPoint, lookaheadDist):
     alpha = math.atan2(nextPoint.y - state.rear_y, nextPoint.x - state.rear_x) - state.yaw
-    delta = math.atan2(2.0 * state.wb * math.sin(alpha) / Lfc, 1.0)
+    delta = math.atan2(2.0 * state.wb * math.sin(alpha) / lookaheadDist, 1.0)
     return delta, nextPoint
 
 def plot_arrow(x, y, yaw, length=1.0, width=0.5, fc="r", ec="k"):
@@ -235,11 +233,11 @@ def main():
     ### obstacles on target course
     random.seed(1)
     obstacles = []
-    for i in range(0,50):
-        randx = -5 + random.random() * (30- -5)
-        randy = -5 + random.random() * (30- -5)
-        randSize = 0.1 + random.random() * (4-0.1)
-        obstacles.append(Obstacle(Point(randx, randy), randSize))
+    # for i in range(0,50):
+    #     randx = -5 + random.random() * (30- -5)
+    #     randy = -5 + random.random() * (30- -5)
+    #     randSize = 0.1 + random.random() * (4-0.1)
+    #     obstacles.append(Obstacle(Point(randx, randy), randSize))
     
     ### initial state
     state = State(x=0.0, y=-2.0, yaw=1.5, v=0.0, wb=vehicle_WB)
@@ -263,11 +261,15 @@ def main():
             collision = check_path_for_collision(path, obstacles)
 
             if not collision:
+                ### calculate lookahead distance based on velocity
+                ### lookahead dist is the given one, or if higher, our current speed based on lookadhead time 
+                lookaheadDist = max(Lfc, k * state.v * Lfs)
+
                 ### choose next point
-                nextPoint = prepare_path_point(state, path)
+                nextPoint = prepare_path_point(state, path, lookaheadDist)
 
                 ## pure pursuit
-                di, currentTargetPoint = pure_pursuit_steer_control(state, nextPoint)
+                di, currentTargetPoint = pure_pursuit_steer_control(state, nextPoint, lookaheadDist)
 
                 ### speed controlled
                 # error = leader.v - state.v 
