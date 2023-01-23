@@ -1,6 +1,9 @@
 import numpy as np
 import random
- 
+
+def quaternion_conjugate(Q):
+    return [Q[0], -Q[1], -Q[2], -Q[3]]
+
 def quaternion_multiply(Q0, Q1):
     """
     Multiplies two quaternions.
