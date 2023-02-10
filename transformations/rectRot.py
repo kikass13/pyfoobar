@@ -19,6 +19,7 @@ class Point():
 def transform(point:Point, trafo):
     v = np.append(point.np(), 1)
     p = np.dot(trafo,np.transpose(v))
+    print(" -- %s" % p)
     return Point(p[0], p[1], z=p[2])
 
 def translation_vector(x,y,z):
