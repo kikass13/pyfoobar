@@ -60,54 +60,50 @@ if __name__ == "__main__":
     params.verbose = True
     params.min_range = 0.1
     params.max_range = 80.0
-    params.sensor_height = 0.5
+    params.sensor_height = -0.5
     params.uprightness_thr = 0.707
-    params.th_dist = 1.0
-
-    params.elevation_thr:  [0.5, 0.8, 1.0, 1.1]  # For flatness. The size should be equal to elevation_thresholds vector
-    params.flatness_thresholds:  [0.0, 0.000125, 0.000185, 0.000185]  # For flatness. The size should be equal to elevation_thresholds vector
-
-
-
+    params.th_dist = 0.5
+    params.elevation_thr:  [0.5, 0.8, 1.0, 1.1]  # For flatness
+    params.flatness_thresholds:  [0.0, 0.000125, 0.000185, 0.000185]  # For flatness
     params.enable_RVPF = False
-    params.enable_TGR = False
-
-
+    # params.enable_TGR = False
 
     PatchworkPLUSPLUS = pypatchworkpp.patchworkpp(params)
 
-    # Load point cloud
-    # pointcloud = read_bin(input_cloud_filepath)
+
+    ### random depth image to pcl
     pointcloud = o3d.io.read_point_cloud("cloud0.pcd")
     pointcloud = np.asarray(pointcloud.points)
-
     xaxa = pointcloud.T
     # xaxa[[0, 1, 2]] = xaxa[[0, 1, 2]]   ###swap axis dimensions of points
     # xaxa[[0, 1, 2]] = xaxa[[0, 2, 1]]   ###swap axis dimensions of points
     # xaxa[[0, 1, 2]] = xaxa[[1, 0, 2]]   ###swap axis dimensions of points
     # xaxa[[0, 1, 2]] = xaxa[[1, 2, 0]]   ###swap axis dimensions of points
-    xaxa[[0, 1, 2]] = xaxa[[2, 1, 0]] ###swap axis dimensions of points
-    # xaxa[[0, 1, 2]] = xaxa[[2, 0, 1]] ###swap axis dimensions of points
+    # xaxa[[0, 1, 2]] = xaxa[[2, 1, 0]] ###swap axis dimensions of points
+    xaxa[[0, 1, 2]] = xaxa[[2, 0, 1]] ###swap axis dimensions of points
     pointcloud = xaxa.T
 
-    # pointcloud = o3d.io.read_point_cloud("lamppost.pcd")
+    ###invert x & z axis
+    # print(pointcloud)
+    # print("===================================")
+    pointcloud[:,2] *= -1.0
+    # print(pointcloud)
+    ### filter z (not really needed anymore)
+    filtered = []
+    for x,y,z in pointcloud:
+        if z < 2.0 and x > 15:     ### dont look up, i guess xD
+            filtered.append([x,y,z])
+    pointcloud = np.array(filtered)
+
+    # ### eth pcl
+    # pointcloud = o3d.io.read_point_cloud("eth3d_cloud0.pcd")
     # pointcloud = np.asarray(pointcloud.points)
 
-    ### reduce x to compensate wrong camera intrinsics or whatever reason that x is ~80m xD
-    # pointcloud[:,0] *= 0.1
-
-    ### filter z
-    # filtered = []
-    # for x,y,z in pointcloud:
-    #     if z < 0.0 and x > 15:     ### dont look up, i guess xD
-    #         filtered.append([x,y,z])
-    # pointcloud = np.array(filtered)
-
-    # np.set_printoptions(threshold=sys.maxsize)
-    # print(pointcloud)
-    # sys.exit(0)
-
     # Estimate Ground
+    PatchworkPLUSPLUS.estimateGround(pointcloud)
+    PatchworkPLUSPLUS.estimateGround(pointcloud)
+    PatchworkPLUSPLUS.estimateGround(pointcloud)
+    PatchworkPLUSPLUS.estimateGround(pointcloud)
     PatchworkPLUSPLUS.estimateGround(pointcloud)
 
     # Get Ground and Nonground
@@ -130,7 +126,7 @@ if __name__ == "__main__":
 
     # Visualize
     vis = o3d.visualization.VisualizerWithKeyCallback()
-    vis.create_window(width = 600, height = 400)
+    vis.create_window(width = 1024, height = 768)
 
     mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
 
@@ -160,6 +156,14 @@ if __name__ == "__main__":
     vis.add_geometry(ground_o3d)
     vis.add_geometry(nonground_o3d)
     vis.add_geometry(centers_o3d)
+
+    print(o3d.io.write_point_cloud("nonground.pcd", nonground_o3d, write_ascii=True, compressed=False, print_progress=True))
+
+
+    downpcd = nonground_o3d.voxel_down_sample(voxel_size=0.5)
+    print(o3d.io.write_point_cloud("nonground_downsampled.pcd", downpcd, write_ascii=True, compressed=False, print_progress=True))
+
+
 
     vis.run()
     vis.destroy_window()
