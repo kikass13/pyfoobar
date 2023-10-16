@@ -135,8 +135,11 @@ if __name__ == "__main__":
         smallObjects = []
         for o in objects:
             center,w,d,h,col = o
-            volume = w*d*h 
-            if h > 0.5 and h < 3.0 and volume > 0.5 and volume < 3.0:
+            # volume = w*d*h 
+            # if h > 0.5 and h < 3.0 and volume > 0.5 and volume < 3.0:
+            #     smallObjects.append(o)
+            area = w*d
+            if area < 2.0:
                 smallObjects.append(o)
 
         for cub in cuboids:
