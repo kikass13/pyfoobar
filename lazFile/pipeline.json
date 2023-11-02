@@ -1,0 +1,14 @@
+
+{
+  "pipeline": [
+    {
+      "type": "readers.las",
+      "filename": "Ruddington_ResStr.laz"
+    },
+    {
+      "type": "writers.text",
+      "order": "X,Y,Z,Red,Green,Blue",
+      "filename": "Ruddington_ResStr.csv"
+    }
+  ]
+}

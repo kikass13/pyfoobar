@@ -10,7 +10,7 @@ def find_circle_in_cuboid(W, D, H):
 
     # Calculate the radius of the circle
     # Radius = min(Center_X, Center_Y, Center_Z)
-    Radius = max(Center_X, Center_Y, Center_Z)
+    Radius = max(Center_X, Center_Y) ### dont use z here?
 
     # Calculate the center of the circle
     Circle_Center = (Center_X, Center_Y, Center_Z)
