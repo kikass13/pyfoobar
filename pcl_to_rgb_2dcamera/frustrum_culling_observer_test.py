@@ -46,7 +46,6 @@ def compute_frustum(observer_position, observer_direction, fov_degrees, near_cli
     bottom_plane = (near_bottom_right, far_bottom_right, far_bottom_left, near_bottom_left)
     left_plane = (near_bottom_left, far_bottom_left, far_top_left, near_top_left)
     
-    
     ### frustrum normals
     return (near_plane, far_plane, top_plane, right_plane, bottom_plane, left_plane)
 
@@ -57,15 +56,12 @@ def is_point_in_frustum(point, frustum_planes):
         normal = np.cross(line1, line2)
         ### normalize normal
         normal /= np.linalg.norm(normal)
-        # print(normal)
         return normal
     for plane_points in frustum_planes:
         normal_vector = compute_normal_vector(plane_points)
         # Choose any point from the plane to calculate the distance
         reference_point = plane_points[0]
-        distance = -np.dot(normal_vector, reference_point)
         vector_to_point = point - reference_point
-        # print(distance)
         # Check against the frustum plane
         dotP = np.dot(vector_to_point, normal_vector)
         if dotP < 0:
@@ -79,8 +75,8 @@ def plot_frustum(ax, frustum_planes):
         ax.add_collection3d(frustum_polygon)
    
 # Initial observer
-observer_position = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-observer_direction = np.array([1, 0, 0])  # Assuming looking along the positive x-axis
+observer_position = np.array([-2.0, 2.0, 0.0], dtype=np.float32)
+observer_direction = np.array([0.5, 0.5, 0])  # Assuming looking along the positive x-axis
 
 fov = 60.0  # Field of view in degrees
 aspect_ratio = 4/3  # Width/height ratio of the viewport
@@ -97,8 +93,6 @@ points_3d = np.random.rand(1000, 3).astype(np.float32) * 20.0 - 10.0
 # ]).astype(np.float32)
 # Initial computation of frustum planes
 frustum_planes = compute_frustum(observer_position, observer_direction, fov, near, far)
-# Change in observer direction
-new_observer_direction = np.array([1, 0, 0])  # Example: now looking along the positive x-axis
 
 # Check if the point is inside the updated frustum
 result = np.zeros(len(points_3d), dtype=np.bool_)
@@ -114,7 +108,7 @@ ax = fig.add_subplot(projection='3d')
 plot_frustum(ax, frustum_planes)
 
 ax.scatter(failed[:, 0], failed[:, 1], failed[:, 2], color='gray', alpha=0.2)
-ax.scatter(passed[:, 0], passed[:, 1], passed[:, 2], color='green')
+ax.scatter(passed[:, 0], passed[:, 1], passed[:, 2], color='green', alpha=0.4)
 
 plt.title('Scatter Plot of Points with Results')
 ax.set_xlabel('X-axis')
