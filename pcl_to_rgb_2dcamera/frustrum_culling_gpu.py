@@ -20,66 +20,34 @@ def next_power_of_2(n):
     return n + 1
 
 kernel_code = """
-__kernel void frustum_culling(__global float* points, __global float* frustum_planes, __global unsigned char* result) {
+__kernel void frustum_culling(__constant float* points, __constant float* frustum_planes, __global unsigned char* result) {
     int gid = get_global_id(0);
 
-    /*
-        6 x 4 x 3 = 72
-        6 planes with 4 points containing 3 floats
-        planeIndex = i * 4 * 3 
-        i = 0: 0
-        i = 1: 12
-        i = 2: 24
-        i = 3: 36
-        i = 4: 48
-        i = 5: 60
-        pointIndex = i + p * 3
-        i0, p0 = 0
-        i0, p1 = 3
-        i0, p2 = 6
-        i0, p3 = 9
-        varIndex = i + p * 3 + var
-        i0, p0, x = 0
-        i0, p1, y = 1
-        i0, p2, z = 2
-
-                        i      p   var   
-        i4, p3, y >>> 4*3*3 + 3*3 + 1  == 48 + 9 + 1 = 58
-    */
-
+    float3 point = vload3(gid, points);
     for(unsigned int i = 0; i < 6; i++){
+        float3 frustrum_point0 = vload3(i*4 + 0, frustum_planes); // frustum_planes[i][0].x,y,z
+        float3 frustrum_point1 = vload3(i*4 + 1, frustum_planes); // frustum_planes[i][1].x,y,z
+        float3 frustrum_point2 = vload3(i*4 + 2, frustum_planes); // frustum_planes[i][2].x,y,z
+
         // compute normal of frustrum
-        float3 l1;
-        float3 l2;
-        l1[0] = frustum_planes[i*4*3 + 1*3 + 0] - frustum_planes[i*4*3 + 0*3 + 0]; // frustum_planes[i][1].x - frustum_planes[i][0].x
-        l1[1] = frustum_planes[i*4*3 + 1*3 + 1] - frustum_planes[i*4*3 + 0*3 + 1]; // frustum_planes[i][1].y - frustum_planes[i][0].y
-        l1[2] = frustum_planes[i*4*3 + 1*3 + 2] - frustum_planes[i*4*3 + 0*3 + 2]; // frustum_planes[i][1].z - frustum_planes[i][0].z
-        l2[0] = frustum_planes[i*4*3 + 2*3 + 0] - frustum_planes[i*4*3 + 0*3 + 0]; // frustum_planes[i][2].x - frustum_planes[i][0].x
-        l2[1] = frustum_planes[i*4*3 + 2*3 + 1] - frustum_planes[i*4*3 + 0*3 + 1]; // frustum_planes[i][2].y - frustum_planes[i][0].y
-        l2[2] = frustum_planes[i*4*3 + 2*3 + 2] - frustum_planes[i*4*3 + 0*3 + 2]; // frustum_planes[i][2].z - frustum_planes[i][0].z
+        float3 l1 = frustrum_point1 - frustrum_point0;
+        float3 l2 = frustrum_point2 - frustrum_point0;
 
         // cross product l1 x l2
-        float3 normal;
-        normal[0] = l1[1] * l2[2] - l1[2] * l2[1];
-        normal[1] = l1[2] * l2[0] - l1[0] * l2[2];
-        normal[2] = l1[0] * l2[1] - l1[1] * l2[0];
+        float3 normal = cross(l1, l2);
         
         // normalize normal vector
-        float r = sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]) + 0.000001f;
-
-        normal[0] /= r;
-        normal[1] /= r;
-        normal[2] /= r;
+        // float r = length(normal);
+        // normal[0] /= r;
+        // normal[1] /= r;
+        // normal[2] /= r;
+        normal = normalize(normal);
 
         // calculate point to reference on normal plane
-        float3 vector_to_point;
-        vector_to_point[0] = points[gid*3 + 0] - frustum_planes[i*4*3 + 0*3 + 0]; // points[gid].x - frustum_planes[i][0].x
-        vector_to_point[1] = points[gid*3 + 1] - frustum_planes[i*4*3 + 0*3 + 1]; // points[gid].x - frustum_planes[i][0].y
-        vector_to_point[2] = points[gid*3 + 2] - frustum_planes[i*4*3 + 0*3 + 2]; // points[gid].x - frustum_planes[i][0].z
-        
+        float3 vector_to_point = point - frustrum_point0;
+
         // dot product: vector_to_point . normal
-        float dotproduct;
-        dotproduct = vector_to_point[0] * normal[0] + vector_to_point[1] * normal[1] + vector_to_point[2] * normal[2];
+        float dotproduct = dot(vector_to_point, normal);
 
         // Check if the point is inside the view frustum
         if (dotproduct < 0) {
@@ -91,8 +59,6 @@ __kernel void frustum_culling(__global float* points, __global float* frustum_pl
     }
 }
 """
-
-
 
 class FrustumFilter:
     def __init__(self):
@@ -203,7 +169,7 @@ if __name__ == '__main__':
 
     frustum_planes = frustumFilter.compute_frustum(observer_position, observer_direction, fov, near, far)
     ####################################
-    points_3d = np.random.rand(10000, 3) * 20.0 - 10.0
+    points_3d = np.random.rand(10000000, 3) * 20.0 - 10.0
     # points_3d = np.random.rand(1100000, 3) * 20.0 - 10.0
     # points_3d = np.array([
     #     [4.0, 0.0, 1.0],
@@ -225,6 +191,8 @@ if __name__ == '__main__':
     ax = fig.add_subplot(projection='3d')
 
     frustumFilter.plot_frustum(ax, frustum_planes)
+    if len(passed_points) > 10000:
+        passed_points = passed_points[:10000]
     # ax.scatter(failed_points[:, 0], failed_points[:, 1], failed_points[:, 2], color='gray', alpha=0.2)
     ax.scatter(passed_points[:, 0], passed_points[:, 1], passed_points[:, 2], color='green', alpha=0.4)
     plt.title('Scatter Plot of Points with Results')
