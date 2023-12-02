@@ -25,7 +25,7 @@ __kernel void project_points(__constant float* points, __global float* projectio
     
     // load homogenous point
     float4 point = vload4(gid, points);
-    
+
     // Apply the transformation matrix
     float4 extrafo0 = vload4(0, extrinsic_matrix);
     float4 extrafo1 = vload4(1, extrinsic_matrix);
@@ -40,13 +40,13 @@ __kernel void project_points(__constant float* points, __global float* projectio
     float4 intrafo0 = vload4(0, intrinsic_matrix);
     float4 intrafo1 = vload4(1, intrinsic_matrix);
     float4 intrafo2 = vload4(2, intrinsic_matrix);
-    // float4 intrafo3 = (float4)(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 intrafo3 = (float4)(0.0f, 0.0f, 0.0f, 1.0f);
 
     float4 projected_point;
     projected_point.x = dot(rotated_and_translated_point, intrafo0);
     projected_point.y = dot(rotated_and_translated_point, intrafo1);
     projected_point.z = dot(rotated_and_translated_point, intrafo2);
-    // projected_point.w = dot(rotated_and_translated_point, intrafo3);
+    projected_point.w = dot(rotated_and_translated_point, intrafo3);
 
     // Perform perspective division
     if (projected_point.z != 0.0f) {
@@ -135,7 +135,7 @@ class CameraProjector:
         return projection_result, colors
 
 if __name__ == '__main__':
-    observer_position = np.array([-5.0, 0.0, 0.0], dtype=np.float32)
+    observer_position = np.array([0, -5.0, 0], dtype=np.float32)
     # observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
 
     focal_length = 600
@@ -147,9 +147,9 @@ if __name__ == '__main__':
     cy = image_height / 2.0  # Y-coordinate of the principal point
 
     # Define your camera matrix (example: perspective projection)
-    camera_matrix = np.array([[fx, 0, cx ],
-                            [0, fy, cy ],
-                            [0, 0, 1 ]], dtype=np.float32)
+    camera_matrix = np.array([[fx, 0, cx,0],
+                            [0, fy, cy,0],
+                            [0, 0, 1,0]], dtype=np.float32)
     #################### TEST default 3d
     ### +x forward, +y up, +z left
     rotation_matrix = np.array([[1, 0, 0],
@@ -167,7 +167,6 @@ if __name__ == '__main__':
         ### down > green = Z-
         points_3d, colors = create_colored_cube_array(N=20, size=2.0)
         colors = (colors * 255).astype(np.uint8)
-
         print(rotation_matrix)
         # tvec = np.array([observer_position[0], observer_position[1], observer_position[2]])
         #################### MANGLE
@@ -187,7 +186,10 @@ if __name__ == '__main__':
         ### after rotation, the translation for cv2 looks like this
         # tvec = np.array([observer_position[1], observer_position[2], -observer_position[0]])
         ####################
+        ### homogenous roation and translation vectors before building extrinsic matrix
+        ### we change the rotation matrix around 
         extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
+        extrinsic_matrix = np.vstack([extrinsic_matrix, [0,0,0,1]])
         ### do projection
         projector = CameraProjector()
         projector.init()

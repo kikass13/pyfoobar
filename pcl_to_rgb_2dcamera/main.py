@@ -145,7 +145,7 @@ if projectorMode == "cv2":
 #########################################################
 elif projectorMode == "opencl":
 	startTime3 = time.time()
-	points_2d, colors = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, image_height, image_width, sortPointsByZ=True)
+	points_2d, colors = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, image_height, image_width)
 	print("ProjectionDt: %s" % (time.time() - startTime3))
 	### plot 2d points with our own projected points
 	startTimeRender = time.time()
