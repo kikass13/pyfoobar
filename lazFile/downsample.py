@@ -9,11 +9,14 @@ import sys
 
 
 file = sys.argv[1]
+voxel_size = 0.1
+if len(sys.argv) > 2:
+    voxel_size = float(sys.argv[2])
 
 # Read point cloud:
 pcd = o3d.io.read_point_cloud(file)
 
-downpcd = pcd.voxel_down_sample(voxel_size=0.1)
+downpcd = pcd.voxel_down_sample(voxel_size=voxel_size)
 
 print(o3d.io.write_point_cloud("downsample_%s"%file, downpcd, write_ascii=True, compressed=False, print_progress=True))
 

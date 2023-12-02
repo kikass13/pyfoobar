@@ -16,7 +16,7 @@
 do other things:
 
 
- * python3 downsample Ruddington_ResStr.pcd
+ * python3 downsample.py Ruddington_ResStr.pcd 0.025
 
- * python3 pcdview downsample_Ruddington_ResStr.pcd
+ * python3 pcdview.py downsample_Ruddington_ResStr.pcd
 
