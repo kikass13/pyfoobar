@@ -5,56 +5,74 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.spatial.distance import cdist
 
-from frustrum_culling_gpu import compute_frustum, filter_points_by_frustum_opencl, plot_frustum
-
+from frustrum_culling_gpu import FrustumFilter
+from camera_projection_gpu import CameraProjector
+from coloredCube import create_colored_cube_array
 
 points = np.load("downsample_ruddington.npy", allow_pickle=True)
 xyzrgb = points.astype(np.float32, copy=False)
 points_3d = xyzrgb[:,:3].astype(np.float32, copy=False)
 colors = xyzrgb[:,3:].astype(np.float32, copy=False) * 255
-# Sample every nth point
-# points_3d = points_3d[::8]
-# colors = colors[::8]
+# # Sample every nth point
+# points_3d = points_3d[::4]
+# colors = colors[::4]
 # print("Downsampled Points: %s" % len(points_3d))
 
+### testing with colored cube
+# points_3d, colors = create_colored_cube_array(N=20, size=2.0)
+# colors = (colors * 255).astype(np.uint8)
+
+
+frustumFilter = FrustumFilter()
+frustumFilter.init()
+projector = CameraProjector()
+projector.init()
 
 startTime1 = time.time()
 
-fov = 80.0  # Field of view in degrees
+fov = 50.0  # Field of view in degrees
 aspect_ratio = 4/3  # Width/height ratio of the viewport
-near = 0.1
-far = 200.0
+near = 0.2
+far = 50.0
 focal_length = 600
 image_width = 1200
 image_height = 900
-
-# Create the translation vector (in our cooordinate system , before rotation)
-observer_position = np.array([-70.0, 8.0, 1.0], dtype=np.float32)
-# observer_position = np.array([-80, -8, 5.0], dtype=np.float32)
-# observer_position = np.array([-100, -50, 5.0], dtype=np.float32)
-### observer direction into positive x axis
-observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
-
-### cv2 image coordinates
-rotation_matrix = np.array([[0, -1, 0],
-                            [0, 0, -1],
-                            [1, 0, 0]], dtype=np.float32)
-
-# Convert the rotation matrix to a Rodrigues rotation vector
-rvec, _ = cv2.Rodrigues(rotation_matrix)
-### after rotation, the translation for cv2 looks like this
-tvec = np.array([observer_position[1], observer_position[2], -observer_position[0]])
-# tvec = np.array([8.0, 20.0, 60.0])
-
-# Combine rotation and translation into extrinsic matrix
-# extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
-
-# Camera matrix (assuming a simple perspective camera)
 fx = focal_length  # Focal length in x-direction
 fy = focal_length  # Focal length in y-direction
 cx = image_width / 2.0  # X-coordinate of the principal point
 cy = image_height / 2.0  # Y-coordinate of the principal point
 
+# Create the translation vector (in our cooordinate system , before rotation)
+observer_position = np.array([-70.0, 8.0, 1.0], dtype=np.float32)
+# observer_position = np.array([-2.0, -2.0, -2.0], dtype=np.float32)
+### observer direction into positive x axis
+observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
+
+##### hmmm default, opencv has to use other convention anyways
+#####################
+### +x forward, +y up, +z left
+# rotation_matrix = np.array([[1, 0, 0],
+# 							[0, 1, 0],
+# 							[0, 0, 1]], dtype=np.float32) 
+### birdseye
+# rotation_matrix = np.array([[0, 0, 1],
+# 							[0, 1, 0],
+# 							[-1, 0, 0]], dtype=np.float32) 
+rotation_matrix = np.array([[-1, 0, 0],
+							[0, 0, 1],
+							[0, 1, 0]], dtype=np.float32)
+### switch up z and y? because for some reason our image projection stuff looks differently onto the world
+### in comparison to our frustum filter
+tvec = np.array([observer_position[0], -observer_position[2], -observer_position[1]])
+#####################
+
+# Combine rotation and translation into extrinsic matrix
+extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
+# Camera matrix (assuming a simple perspective camera)
+fx = focal_length  # Focal length in x-direction
+fy = focal_length  # Focal length in y-direction
+cx = image_width / 2.0  # X-coordinate of the principal point
+cy = image_height / 2.0  # Y-coordinate of the principal point
 camera_matrix = np.array([[fx, 0, cx],
                          [0, fy, cy],
                          [0, 0, 1]])
@@ -74,12 +92,11 @@ def filter_points_behind(points, colors, observer_point, observer_direction):
 	colors = colors[indices_not_behind]
 	return points, colors
 def filter_points_camera_gpu(points, colors, observer_point, observer_direction, fov, aspect_ratio, near, far):
-	frustum_planes = compute_frustum(observer_point, observer_direction, fov, near, far, aspect_ratio)
-	indices = filter_points_by_frustum_opencl(points, frustum_planes)
+	frustum_planes = frustumFilter.compute_frustum(observer_point, observer_direction, fov, near, far, aspect_ratio)
+	indices = frustumFilter.filter_points_by_frustum_opencl(points, frustum_planes)
 	points = points[indices == 1]
 	colors = colors[indices == 1]
 	return points, colors, frustum_planes
-
 ### filter dumb
 # points_3d, colors = filter_points_behind(points_3d, colors, observer_position, observer_direction)
 ### filter ultra smart
@@ -91,20 +108,52 @@ colors = colors[:, ::-1]
 
 # print(len(points_3d))
 print("FilterDt: %s" % (time.time() - startTime2))
+def cv2_project_3d_points_to_camera(points_3d, observer_position, camera_matrix, dist_coeffs):
+	#############################################################################
+	### WHEN USING CV2 PROJECTION FUNCTION
+	### cv2 image coordinates
+	rotation_matrix = np.array([[0, -1, 0],
+								[0, 0, -1],
+								[1, 0, 0]], dtype=np.float32)
+	# Convert the rotation matrix to a Rodrigues rotation vector
+	rvec, _ = cv2.Rodrigues(rotation_matrix)
+	### after rotation, the translation for cv2 looks like this
+	tvec = np.array([observer_position[1], observer_position[2], -observer_position[0]])
+	#############################################################################
+	# Project 3D points to 2D image plane
+	points_2d, _ = cv2.projectPoints(points_3d.astype(np.float32), rvec, tvec, camera_matrix, dist_coeffs)
+	return points_2d
 
-startTime3 = time.time()
-# Project 3D points to 2D image plane
-points_2d, _ = cv2.projectPoints(points_3d.astype(np.float32), rvec, tvec, camera_matrix, dist_coeffs)
-print("ProjectionDt: %s" % (time.time() - startTime3))
 
-# Plot 2D points 
-img = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
-for point, color in zip(points_2d.astype(int), colors):
-	try:
-		img = cv2.circle(img, tuple(point[0]), 1, color.tolist(), -1) 
-	except:
-		# print(point)
-		pass
+# projectorMode = "cv2"
+projectorMode = "opencl"
+
+if projectorMode == "cv2":
+#########################################################
+	startTime3 = time.time()
+	points_2d = cv2_project_3d_points_to_camera(points_3d, observer_position, camera_matrix, dist_coeffs)
+	print("ProjectionDt: %s" % (time.time() - startTime3))
+	### Plot 2D points with opencv projected points
+	img = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
+	for point, color in zip(points_2d.astype(int), colors):
+		try:
+			img = cv2.circle(img, tuple(point[0]), 1, color.tolist(), -1) 
+		except:
+			# print(point)
+			pass
+#########################################################
+elif projectorMode == "opencl":
+	startTime3 = time.time()
+	points_2d, colors = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, image_height, image_width, sortPointsByZ=True)
+	print("ProjectionDt: %s" % (time.time() - startTime3))
+	### plot 2d points with our own projected points
+	img = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
+	for point, color in zip(points_2d, colors):
+		try:
+			img = cv2.circle(img, (int(point[0]), int(point[1])), 1, color.tolist(), -1) 
+		except:
+			pass
+#########################################################
 
 def cropImage(image, x, y, width, height):
 	image = image[int(y):int(y)+int(height), int(x):int(x)+int(width), :]
@@ -193,7 +242,7 @@ def simpleImageInterpolate(image):
 # plt.show()
 
 startTime4 = time.time()
-img = cropImage(img, image_width/4.0, image_height/2.5, image_width/2.0, image_height/2.0)
+# img = cropImage(img, image_width/4.0, image_height/2.5, image_width/2.0, image_height/2.0)
 # img = dilateImage(img)
 # img = resizeImage(img, 2.0)
 # img = interpolateImage(img)
