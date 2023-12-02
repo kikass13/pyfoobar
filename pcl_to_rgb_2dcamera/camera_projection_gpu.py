@@ -80,6 +80,9 @@ class CameraProjector:
         if self.program.get_build_info(self.device, cl.program_build_info.STATUS) > 0:
             raise ValueError("Kernel not compiled, please run .init() method")
         begin = time.time()
+        ### make points homogenous if not already
+        if points_3d.shape[1] == 3:
+            points_3d = np.hstack((points_3d, np.ones((points_3d.shape[0], 1), dtype=points_3d.dtype)))
         projection_result = np.empty_like(points_3d, dtype=np.float32)
         a,b,c = self.device.max_work_item_sizes
         N = a*b 
@@ -164,8 +167,6 @@ if __name__ == '__main__':
         ### down > green = Z-
         points_3d, colors = create_colored_cube_array(N=20, size=2.0)
         colors = (colors * 255).astype(np.uint8)
-        ### make points homogenous
-        points_3d = np.hstack((points_3d, np.ones((points_3d.shape[0], 1), dtype=points_3d.dtype)))
 
         print(rotation_matrix)
         # tvec = np.array([observer_position[0], observer_position[1], observer_position[2]])

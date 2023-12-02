@@ -22,13 +22,11 @@ colors = xyzrgb[:,3:].astype(np.float32, copy=False) * 255
 # points_3d, colors = create_colored_cube_array(N=20, size=2.0)
 # colors = (colors * 255).astype(np.uint8)
 
-
+startTime1 = time.time()
 frustumFilter = FrustumFilter()
 frustumFilter.init()
 projector = CameraProjector()
 projector.init()
-
-startTime1 = time.time()
 
 fov = 50.0  # Field of view in degrees
 aspect_ratio = 4/3  # Width/height ratio of the viewport
@@ -81,6 +79,7 @@ camera_matrix = np.array([[fx, 0, cx],
 dist_coeffs = np.zeros((4, 1))
 print("InitDt: %s" % (time.time() - startTime1))
 
+begin = time.time()
 startTime2 = time.time()
 def filter_points_behind(points, colors, observer_point, observer_direction):
 	# Calculate the vector from the observer to the target point
@@ -134,6 +133,7 @@ if projectorMode == "cv2":
 	points_2d = cv2_project_3d_points_to_camera(points_3d, observer_position, camera_matrix, dist_coeffs)
 	print("ProjectionDt: %s" % (time.time() - startTime3))
 	### Plot 2D points with opencv projected points
+	startTimeRender = time.time()
 	img = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
 	for point, color in zip(points_2d.astype(int), colors):
 		try:
@@ -141,18 +141,19 @@ if projectorMode == "cv2":
 		except:
 			# print(point)
 			pass
+	print("RenderDt: %s" % (time.time() - startTimeRender))
 #########################################################
 elif projectorMode == "opencl":
 	startTime3 = time.time()
 	points_2d, colors = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, image_height, image_width, sortPointsByZ=True)
 	print("ProjectionDt: %s" % (time.time() - startTime3))
 	### plot 2d points with our own projected points
+	startTimeRender = time.time()
 	img = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
 	for point, color in zip(points_2d, colors):
-		try:
-			img = cv2.circle(img, (int(point[0]), int(point[1])), 1, color.tolist(), -1) 
-		except:
-			pass
+		# img = cv2.circle(img, (int(point[0]), int(point[1])), 1, color.tolist(), -1) 
+		img[int(point[1]), int(point[0])] = color
+	print("RenderDt: %s" % (time.time() - startTimeRender))
 #########################################################
 
 def cropImage(image, x, y, width, height):
@@ -248,6 +249,7 @@ startTime4 = time.time()
 # img = interpolateImage(img)
 # img = simpleImageInterpolate(img)
 print("ImageProcDt: %s" % (time.time() - startTime4))
+print("dt: %s" % (time.time() - begin))
 ###
 ### make image big again for viz
 # img = resizeImage(img, 0.5)
