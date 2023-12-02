@@ -23,31 +23,44 @@ kernel_code = """
 __kernel void frustum_culling(__constant float* points, __constant float* frustum_planes, __global unsigned char* result) {
     int gid = get_global_id(0);
 
+    int local_id = get_local_id(0);
+    __local float3 localFrustumNormals[6];
+
+    /// compute the frustrum normals once to speed up performance
+    if (local_id == 0) {
+        // Store the result in local memory
+        for(unsigned int i = 0; i < 6; i++)
+        {
+            float3 frustrum_point0 = vload3(i*4 + 0, frustum_planes); // frustum_planes[i][0].x,y,z
+            float3 frustrum_point1 = vload3(i*4 + 1, frustum_planes); // frustum_planes[i][1].x,y,z
+            float3 frustrum_point2 = vload3(i*4 + 2, frustum_planes); // frustum_planes[i][2].x,y,z
+
+            // compute normal of frustrum
+            float3 l1 = frustrum_point1 - frustrum_point0;
+            float3 l2 = frustrum_point2 - frustrum_point0;
+
+            // cross product l1 x l2
+            float3 normal = cross(l1, l2);
+            
+            // normalize normal vector (normal / length(normal) )
+            normal = normalize(normal);
+            localFrustumNormals[i] = normal;
+        }
+    }
+    // Synchronize to make sure the result is stored before reading
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // check point against every frustum normal
     float3 point = vload3(gid, points);
     for(unsigned int i = 0; i < 6; i++){
-        float3 frustrum_point0 = vload3(i*4 + 0, frustum_planes); // frustum_planes[i][0].x,y,z
-        float3 frustrum_point1 = vload3(i*4 + 1, frustum_planes); // frustum_planes[i][1].x,y,z
-        float3 frustrum_point2 = vload3(i*4 + 2, frustum_planes); // frustum_planes[i][2].x,y,z
-
-        // compute normal of frustrum
-        float3 l1 = frustrum_point1 - frustrum_point0;
-        float3 l2 = frustrum_point2 - frustrum_point0;
-
-        // cross product l1 x l2
-        float3 normal = cross(l1, l2);
-        
-        // normalize normal vector
-        // float r = length(normal);
-        // normal[0] /= r;
-        // normal[1] /= r;
-        // normal[2] /= r;
-        normal = normalize(normal);
+        // get a random point of the frustum plane 
+        float3 frustrum_point0 = vload3(i*4 + 0, frustum_planes);
 
         // calculate point to reference on normal plane
         float3 vector_to_point = point - frustrum_point0;
 
-        // dot product: vector_to_point . normal
-        float dotproduct = dot(vector_to_point, normal);
+        // dot product: vector_to_point . localFrustumNormals[i]
+        float dotproduct = dot(vector_to_point, localFrustumNormals[i]);
 
         // Check if the point is inside the view frustum
         if (dotproduct < 0) {
