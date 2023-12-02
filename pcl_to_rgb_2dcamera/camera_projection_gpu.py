@@ -3,6 +3,7 @@ import pyopencl as cl
 import cv2
 import time
 
+from chunksSplit import split_array_indices
 from coloredCube import create_colored_cube_array
 
 def next_power_of_2(n):
@@ -80,21 +81,30 @@ class CameraProjector:
         if self.program.get_build_info(self.device, cl.program_build_info.STATUS) > 0:
             raise ValueError("Kernel not compiled, please run .init() method")
         projection_result = np.empty_like(points_3d, dtype=np.float32)
-        # Create OpenCL buffers for the data
-        points_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(points_3d).flatten().astype(np.float32))
-        intrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(camera_matrix).flatten().astype(np.float32))
-        extrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(extrinsic_matrix).flatten().astype(np.float32))
-        projection_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY, projection_result.size * projection_result.itemsize)
-        b1 = points_buffer.get_info(cl.mem_info.SIZE)
-        b2 = intrinsic_camera_buffer.get_info(cl.mem_info.SIZE)
-        b3 = extrinsic_camera_buffer.get_info(cl.mem_info.SIZE)
-        b4 = projection_buffer.get_info(cl.mem_info.SIZE)
-        globalSize = next_power_of_2(b1+b2+b3+b4)
-        localSize = 128
-        # Execute the OpenCL kernel
-        self.program.project_points(self.queue, (globalSize,), (localSize,), points_buffer, projection_buffer, extrinsic_camera_buffer, intrinsic_camera_buffer)
-        # Retrieve the result from the OpenCL buffer
-        cl.enqueue_copy(self.queue, projection_result, projection_buffer).wait()
+        a,b,c = self.device.max_work_item_sizes
+        N = a*b 
+        chunks = int(np.floor(len(points_3d) / N) + 1)
+        chunk_ranges = split_array_indices(len(points_3d), chunks)
+        projection_result = np.empty_like(points_3d, dtype=np.float32)
+        for start_index, end_index in chunk_ranges:
+            points = points_3d[start_index:end_index].astype(np.float32)
+            result = np.empty_like(points, dtype=np.float32)
+            # Create OpenCL buffers for the data
+            points_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=points.flatten().astype(np.float32))
+            intrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=camera_matrix.flatten().astype(np.float32))
+            extrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=extrinsic_matrix.flatten().astype(np.float32))
+            result_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY, result.size * result.itemsize)
+            b1 = points_buffer.get_info(cl.mem_info.SIZE)
+            b2 = intrinsic_camera_buffer.get_info(cl.mem_info.SIZE)
+            b3 = extrinsic_camera_buffer.get_info(cl.mem_info.SIZE)
+            b4 = result_buffer.get_info(cl.mem_info.SIZE)
+            globalSize = next_power_of_2(b1+b2+b3+b4)
+            localSize = 128
+            # Execute the OpenCL kernel
+            self.program.project_points(self.queue, (globalSize,), (localSize,), points_buffer, result_buffer, extrinsic_camera_buffer, intrinsic_camera_buffer)
+            # Retrieve the result from the OpenCL buffer
+            cl.enqueue_copy(self.queue, result, result_buffer).wait()
+            projection_result[start_index:end_index] = result
         ### filter points behind camera
         if filterPointsBehindCamera:
             indices = np.where(
@@ -175,9 +185,12 @@ if __name__ == '__main__':
     ### do projection
     projector = CameraProjector()
     projector.init()
+
+    print(len(points_3d))
     start = time.time()
     points_2d, colors = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix)
     print(time.time() - start)
+    print(len(points_2d))
     ### channels in cv2 is bgr, not rgb - so we switch these up
     # Convert RGB array to BGR array
     colors = colors[:, ::-1]
