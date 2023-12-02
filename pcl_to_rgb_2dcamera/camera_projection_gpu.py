@@ -20,48 +20,43 @@ def next_power_of_2(n):
 
 # Define your OpenCL kernel code
 kernel_code = """
-__kernel void project_points(__global float* points, __global float* projection, __global float* extrinsic_matrix, __global float* intrinsic_matrix) {
+__kernel void project_points(__constant float* points, __global float* projection, __constant float* extrinsic_matrix, __constant float* intrinsic_matrix) {
     int gid = get_global_id(0);
     
-    // if(gid > 100) return;
-
-    float3 point;
-    point[0] = points[gid*3 + 0];
-    point[1] = points[gid*3 + 1];
-    point[2] = points[gid*3 + 2];
-
-    // printf("[%u]p: %f, %f, %f\\n", gid,point[0],point[1],point[2]);
-    // printf("[%u]E: %f, %f, %f\\n", gid,extrinsic_matrix[0*4 + 3],extrinsic_matrix[1*4 + 3],extrinsic_matrix[2*4 + 3]);
+    // load homogenous point
+    float4 point = vload4(gid, points);
     
-    float3 rotated_and_translated_point;
-    // Apply extrinsic matrix (rotation and translation)             r1                                r2                                     r3                                 txyz                               
-    rotated_and_translated_point[0] = extrinsic_matrix[0*4 + 0] * point[0] + extrinsic_matrix[0*4 + 1] * point[1] + extrinsic_matrix[0*4 + 2] * point[2] + extrinsic_matrix[0*4 + 3];
-    rotated_and_translated_point[1] = extrinsic_matrix[1*4 + 0] * point[0] + extrinsic_matrix[1*4 + 1] * point[1] + extrinsic_matrix[1*4 + 2] * point[2] + extrinsic_matrix[1*4 + 3];
-    rotated_and_translated_point[2] = extrinsic_matrix[2*4 + 0] * point[0] + extrinsic_matrix[2*4 + 1] * point[1] + extrinsic_matrix[2*4 + 2] * point[2] + extrinsic_matrix[2*4 + 3];
+    // Apply the transformation matrix
+    float4 extrafo0 = vload4(0, extrinsic_matrix);
+    float4 extrafo1 = vload4(1, extrinsic_matrix);
+    float4 extrafo2 = vload4(2, extrinsic_matrix);
+    float4 extrafo3 = vload4(3, extrinsic_matrix);
+    float4 rotated_and_translated_point;
+    rotated_and_translated_point.x = dot(point, extrafo0);
+    rotated_and_translated_point.y = dot(point, extrafo1);
+    rotated_and_translated_point.z = dot(point, extrafo2);
+    rotated_and_translated_point.w = dot(point, extrafo3);
 
-    // printf("[%u]P': %f, %f, %f\\n", gid,rotated_and_translated_point[0],rotated_and_translated_point[1],rotated_and_translated_point[2]);
-    // printf("[%u]I: %f, %f, %f\\n", gid,intrinsic_matrix[0*4 + 0],intrinsic_matrix[1*4 + 1],intrinsic_matrix[2*4 + 2]);
+    float4 intrafo0 = vload4(0, intrinsic_matrix);
+    float4 intrafo1 = vload4(1, intrinsic_matrix);
+    float4 intrafo2 = vload4(2, intrinsic_matrix);
+    // float4 intrafo3 = (float4)(0.0f, 0.0f, 0.0f, 1.0f);
 
-    // Apply intrinsic matrix (perspective projection)       x                                      y                                                           z
-    float x = intrinsic_matrix[0*4 + 0] * rotated_and_translated_point[0] + intrinsic_matrix[0*4 + 1] * rotated_and_translated_point[1] + intrinsic_matrix[0*4 + 2] * rotated_and_translated_point[2];
-    float y = intrinsic_matrix[1*4 + 0] * rotated_and_translated_point[0] + intrinsic_matrix[1*4 + 1] * rotated_and_translated_point[1] + intrinsic_matrix[1*4 + 2] * rotated_and_translated_point[2];
-    float w = intrinsic_matrix[2*4 + 0] * rotated_and_translated_point[0] + intrinsic_matrix[2*4 + 1] * rotated_and_translated_point[1] + intrinsic_matrix[2*4 + 2] * rotated_and_translated_point[2];
-    
-	// safety for w
-	//w = (float) w + 0.00001f;
+    float4 projected_point;
+    projected_point.x = dot(rotated_and_translated_point, intrafo0);
+    projected_point.y = dot(rotated_and_translated_point, intrafo1);
+    projected_point.z = dot(rotated_and_translated_point, intrafo2);
+    // projected_point.w = dot(rotated_and_translated_point, intrafo3);
 
-    // printf("[%u]XYW: %f, %f, %f\\n", gid,x,y,w);
-	
-    // Perspective division
-    float inv_w = 1.0f / w;
+    // Perform perspective division
+    if (projected_point.z != 0.0f) {
+        projected_point.x /= projected_point.z;
+        projected_point.y /= projected_point.z;
+        projected_point.z = projected_point.z;
+    }
 
     // Store the result in the projection array
-    projection[gid*3 + 0] = x * inv_w;
-    projection[gid*3 + 1] = y * inv_w;
-    projection[gid*3 + 2] = w;
-
-    // printf("[%u]L: %f, %f, %f\\n", gid, projection[gid*3 + 0], projection[gid*3 + 1], projection[gid*3 + 2]);
-
+    vstore4(projected_point, gid, projection);
 }
 """
 
@@ -128,6 +123,7 @@ class CameraProjector:
             start = time.time()
             z_values = projection_result[:, 2]
             sorted_indices = np.argsort(z_values)
+            #sorted_indices = np.argsort(z_values)[::-1] ## descendng
             projection_result = projection_result[sorted_indices]
             colors = colors[sorted_indices]
             self.debug("SortDt: %s" % (time.time() - start))
@@ -136,20 +132,7 @@ class CameraProjector:
         return projection_result, colors
 
 if __name__ == '__main__':
-    N = 100
-    # points_3d = np.random.rand(N, 3).astype(np.float32) * 20.0 - 10
-    # colors = (np.random.rand(N, 3) * 255.0).astype(np.uint8) 
-    ### create colored cube for reference
-    ### Front > blue = X+
-    ### Back > yellow = X-
-    ### Right > purple = Y+
-    ### Left > cyan = Y-
-    ### Up > red = Z+
-    ### down > green = Z-
-    points_3d, colors = create_colored_cube_array(N=N, size=2.0)
-    colors = (colors * 255).astype(np.uint8)
-
-    observer_position = np.array([-4.0, 0.0, 0.0], dtype=np.float32)
+    observer_position = np.array([-5.0, 0.0, 0.0], dtype=np.float32)
     # observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
 
     focal_length = 600
@@ -172,8 +155,18 @@ if __name__ == '__main__':
     
     from rotatcheck import generate_rotation_matrices
     for rotation_matrix in generate_rotation_matrices():
-        points_3d, colors = create_colored_cube_array(N=10, size=2.0)
+        ### create colored cube for reference
+        ### Front > blue = X+
+        ### Back > yellow = X-
+        ### Right > purple = Y+
+        ### Left > cyan = Y-
+        ### Up > red = Z+
+        ### down > green = Z-
+        points_3d, colors = create_colored_cube_array(N=20, size=2.0)
         colors = (colors * 255).astype(np.uint8)
+        ### make points homogenous
+        points_3d = np.hstack((points_3d, np.ones((points_3d.shape[0], 1), dtype=points_3d.dtype)))
+
         print(rotation_matrix)
         # tvec = np.array([observer_position[0], observer_position[1], observer_position[2]])
         #################### MANGLE
