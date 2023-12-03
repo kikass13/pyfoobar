@@ -20,21 +20,22 @@ def next_power_of_2(n):
 
 # Define your OpenCL kernel code
 kernel_code = """
-void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixeldepth, uint image_width, uint image_height, __constant uchar* colors, __global half* depths)
+void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixeldepth, uint image_width, uint image_height,
+               __constant uchar* colors, __global half* depths)
 {
     /// check if pixel behind camera && inside image boundaries
     if(pixeldepth < 0 &&u > 0 && u < image_width && v > 0 && v < image_height)
     {
         uint i = v * image_width + u;
-        half d = depths[i];     
-        if(pixeldepth >= d)
-        {
-            // overwrite depth
-            depths[i] = pixeldepth;
-            // load color of pixel from point
-            uchar3 rgb = vload3(index, colors);
-            vstore3(rgb, i, projection);
+        half d = depths[i];
+        if(pixeldepth < d){
+            return;
         }
+        // overwrite depth
+        depths[i] = pixeldepth;
+        // load color of pixel from point
+        uchar3 rgb = vload3(index, colors);
+        vstore3(rgb, i, projection);
     }
 }
 
@@ -86,10 +87,11 @@ __kernel void project_points(uint offset, __constant float* points, __constant u
     uint u = floor(projected_point.x + 0.5f);
     uint v = floor(projected_point.y + 0.5f);
 
+    uint index = gid + offset;
+
     // Store the pixel in the projection image
-    drawPixel(projection, gid + offset, u, v, projected_point.z, image_width, image_height, colors, depths);
-    /*
     if(inflation == 1){
+        drawPixel(projection, index, u, v, projected_point.z, image_width, image_height, colors, depths);
     }
     // draw rect around pixel 
     else{
@@ -100,17 +102,16 @@ __kernel void project_points(uint offset, __constant float* points, __constant u
         for (int y = startY; y <= endY; ++y) {
             uint tmp = y * image_width;
             for (int x = startX; x <= endX; ++x) {
-                drawPixel(projection, offset, x, y, projected_point.z, image_width, image_height, colors, depths);
+                drawPixel(projection, index, x, y, projected_point.z, image_width, image_height, colors, depths);
             }
         }
     }
-    */
     // draw cross
-    // drawPixel(projection, offset, u, v, projected_point.z, image_width, image_height, colors, depths);
-    // drawPixel(projection, offset, u-1, v, projected_point.z, image_width, image_height, colors, depths);
-    // drawPixel(projection, offset, u+1, v, projected_point.z, image_width, image_height, colors, depths);
-    // drawPixel(projection, offset, u, v-1, projected_point.z, image_width, image_height, colors, depths);
-    // drawPixel(projection, offset, u, v+1, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, index, u, v, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, index, u-1, v, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, index, u+1, v, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, index, u, v-1, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, index, u, v+1, projected_point.z, image_width, image_height, colors, depths);
 }
 """
 
@@ -181,6 +182,7 @@ class CameraProjector:
                 ### copy back the depth buffer, for the next chunk iteration
                 cl.enqueue_copy(self.queue, projection_depths, depth_buffer).wait()
         self.debug("ProjectionDt: %s" % (time.time() - start))
+        # return cv2.flip(projection_result, 1)
         return projection_result
 
 if __name__ == '__main__':
