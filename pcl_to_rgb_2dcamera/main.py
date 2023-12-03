@@ -12,7 +12,7 @@ from coloredCube import create_colored_cube_array
 points = np.load("downsample_ruddington.npy", allow_pickle=True)
 xyzrgb = points.astype(np.float32, copy=False)
 points_3d = xyzrgb[:,:3].astype(np.float32, copy=False)
-colors = xyzrgb[:,3:].astype(np.float32, copy=False) * 255
+colors = (xyzrgb[:,3:].astype(np.float32, copy=False) * 255).astype(np.uint8)
 # # Sample every nth point
 # points_3d = points_3d[::4]
 # colors = colors[::4]
@@ -20,7 +20,7 @@ colors = xyzrgb[:,3:].astype(np.float32, copy=False) * 255
 
 ### testing with colored cube
 # points_3d, colors = create_colored_cube_array(N=100, size=2.0)
-colors = (colors * 255).astype(np.uint8)
+# colors = (colors * 255).astype(np.uint8)
 
 startTime1 = time.time()
 frustumFilter = FrustumFilter()
@@ -42,8 +42,8 @@ cy = image_height / 2.0  # Y-coordinate of the principal point
 
 # Create the translation vector (in our cooordinate system , before rotation)
 # observer_position = np.array([-70.0, 8.0, 1.0], dtype=np.float32)
-# observer_position = np.array([-8.0, 70.0, 1.0], dtype=np.float32)
-observer_position = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+# observer_position = np.array([50.0, -8.0, 1.0], dtype=np.float32)
+observer_position = np.array([8.0, -70.0, 1.0], dtype=np.float32)
 ### observer direction into positive x axis
 # observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
 ### observer direction into positive z axis
@@ -55,19 +55,18 @@ observer_direction = np.array([0.0, 0.0, 1.0]).astype(np.float32)
 # rotation_matrix = np.array([[1, 0, 0],
 # 							[0, 1, 0],
 # 							[0, 0, 1]], dtype=np.float32) 
-
-rotation_matrix = np.array([[0, 1, 0],
+rotation_matrix = np.array([[0, -1, 0],
 							[0, 0, 1],
-							[1, 0, 0]], dtype=np.float32) 
+							[-1, 0, 0]], dtype=np.float32) 
 
-from rotatcheck import generate_rotation_matrices
-for rotation_matrix in generate_rotation_matrices():
-# if True:
+# from rotatcheck import generate_rotation_matrices
+# for rotation_matrix in generate_rotation_matrices():
+if True:
 	print(rotation_matrix)
 	### switch up z and y? because for some reason our image projection stuff looks differently onto the world
 	### in comparison to our frustum filter
-	tvec = np.array([observer_position[0], -observer_position[2], -observer_position[1]])
-	# tvec = np.array([observer_position[0], observer_position[2], observer_position[1]])
+	# tvec = np.array([observer_position[0], -observer_position[2], -observer_position[1]])
+	tvec = np.array([observer_position[0], -observer_position[2], observer_position[1]])
 	#####################
 	# Combine rotation and translation into extrinsic matrix
 	extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
@@ -78,7 +77,7 @@ for rotation_matrix in generate_rotation_matrices():
 	cx = image_width / 2.0  # X-coordinate of the principal point
 	cy = image_height / 2.0  # Y-coordinate of the principal point
 	camera_matrix = np.array([
-		[fx, 0, cx,0],
+		[-fx, 0, cx,0],			### -fx means a vertical flip of the resulting image
 		[0, fy, cy,0],
 		[0, 0, 1, 0]
 	], dtype=np.float32)
@@ -86,7 +85,6 @@ for rotation_matrix in generate_rotation_matrices():
 	dist_coeffs = np.zeros((4, 1))
 	print("InitDt: %s" % (time.time() - startTime1))
 
-	begin = time.time()
 	startTime2 = time.time()
 	def filter_points_behind(points, colors, observer_point, observer_direction):
 		# Calculate the vector from the observer to the target point
@@ -103,14 +101,17 @@ for rotation_matrix in generate_rotation_matrices():
 		if indices.any():
 			return points[indices == 1], colors[indices == 1], frustum_planes
 		return np.array([]), np.array([]), np.array([])
+	###############################
+	begin = time.time()
+	### no filter
+	filtered_points_3d, filtered_colors = (points_3d, colors)
 	### filter dumb
 	# filtered_points_3d, filtered_colors = filter_points_behind(points_3d, colors, observer_position, observer_direction)
 	### filter ultra smart
-	filtered_points_3d, filtered_colors, frustum_planes = filter_points_camera_gpu(points_3d, colors, observer_position, observer_direction, fov, aspect_ratio, near, far)
+	# filtered_points_3d, filtered_colors, frustum_planes = filter_points_camera_gpu(points_3d, colors, observer_position, observer_direction, fov, aspect_ratio, near, far)
 	print("FilterDt: %s" % (time.time() - startTime2))
-
 	img = np.zeros((image_height, image_width))
-	if filtered_points_3d.any() and filtered_colors.any() and frustum_planes.any():
+	if filtered_points_3d.any() and filtered_colors.any():
 		print(len(filtered_points_3d))
 		# projectorMode = "cv2"
 		projectorMode = "opencl"
@@ -146,7 +147,7 @@ for rotation_matrix in generate_rotation_matrices():
 		#########################################################
 		elif projectorMode == "opencl":
 			startTime3 = time.time()
-			img = projector.project_points_to_camera_opencl(filtered_points_3d, filtered_colors, extrinsic_matrix, camera_matrix)
+			img = projector.project_points_to_camera_opencl(filtered_points_3d, filtered_colors, extrinsic_matrix, camera_matrix, inflation=2)
 			print("ProjectionDt + RenderDt: %s" % (time.time() - startTime3))
 		#########################################################
 
@@ -247,7 +248,9 @@ for rotation_matrix in generate_rotation_matrices():
 	###
 	### make image big again for viz
 	# img = resizeImage(img, 0.5)
-	# img = img[:, :, ::-1]
+	### channels in cv2 is bgr, not rgb - so we switch these up
+	# Convert RGB array to BGR array
+	img = img[:, :, ::-1]
 	cv2.imshow('Image', img) 
 	cv2.waitKey(0) 
 	cv2.destroyAllWindows() 
