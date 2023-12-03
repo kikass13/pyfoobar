@@ -87,9 +87,11 @@ __kernel void project_points(uint offset, __constant float* points, __constant u
     uint v = floor(projected_point.y + 0.5f);
 
     // Store the pixel in the projection image
+    drawPixel(projection, gid + offset, u, v, projected_point.z, image_width, image_height, colors, depths);
+    /*
     if(inflation == 1){
-        drawPixel(projection, gid + offset, u, v, projected_point.z, image_width, image_height, colors, depths);
     }
+    // draw rect around pixel 
     else{
         uint startX = u - (uint)inflation / 2.0f;
         uint startY = v - (uint)inflation / 2.0f;
@@ -102,6 +104,13 @@ __kernel void project_points(uint offset, __constant float* points, __constant u
             }
         }
     }
+    */
+    // draw cross
+    // drawPixel(projection, offset, u, v, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, offset, u-1, v, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, offset, u+1, v, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, offset, u, v-1, projected_point.z, image_width, image_height, colors, depths);
+    // drawPixel(projection, offset, u, v+1, projected_point.z, image_width, image_height, colors, depths);
 }
 """
 
