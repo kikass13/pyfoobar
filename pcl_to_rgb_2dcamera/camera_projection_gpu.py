@@ -20,7 +20,28 @@ def next_power_of_2(n):
 
 # Define your OpenCL kernel code
 kernel_code = """
-__kernel void project_points(__constant float* points, __global float* projection, __constant float* extrinsic_matrix, __constant float* intrinsic_matrix) {
+void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixeldepth, uint image_width, uint image_height, __constant uchar* colors, __global half* depths)
+{
+    /// check if pixel behind camera && inside image boundaries
+    if(pixeldepth < 0 &&u > 0 && u < image_width && v > 0 && v < image_height)
+    {
+        uint i = v * image_width + u;
+        half d = depths[i];     
+        if(pixeldepth >= d)
+        {
+            // overwrite depth
+            depths[i] = pixeldepth;
+            // load color of pixel from point
+            uchar3 rgb = vload3(index, colors);
+            vstore3(rgb, i, projection);
+        }
+    }
+}
+
+__kernel void project_points(uint offset, __constant float* points, __constant uchar* colors, __global half* depths, 
+                            __global uchar* projection, __constant float* extrinsic_matrix, __constant float* intrinsic_matrix,
+                            uchar inflation) 
+{
     int gid = get_global_id(0);
     
     // load homogenous point
@@ -42,6 +63,10 @@ __kernel void project_points(__constant float* points, __global float* projectio
     float4 intrafo2 = vload4(2, intrinsic_matrix);
     float4 intrafo3 = (float4)(0.0f, 0.0f, 0.0f, 1.0f);
 
+    // get image properties
+    uint image_width = intrafo0.z * 2.0f;
+    uint image_height = intrafo1.z * 2.0f;
+
     float4 projected_point;
     projected_point.x = dot(rotated_and_translated_point, intrafo0);
     projected_point.y = dot(rotated_and_translated_point, intrafo1);
@@ -55,8 +80,28 @@ __kernel void project_points(__constant float* points, __global float* projectio
         projected_point.z = projected_point.z;
     }
 
-    // Store the result in the projection array
-    vstore4(projected_point, gid, projection);
+    // get pixel depth of the calculated pixel
+    // if our depth is greater then that existing depth, we overwrite it
+    /// we round the pixel coordinates to nearest integer
+    uint u = floor(projected_point.x + 0.5f);
+    uint v = floor(projected_point.y + 0.5f);
+
+    // Store the pixel in the projection image
+    if(inflation == 1){
+        drawPixel(projection, gid + offset, u, v, projected_point.z, image_width, image_height, colors, depths);
+    }
+    else{
+        uint startX = u - (uint)inflation / 2.0f;
+        uint startY = v - (uint)inflation / 2.0f;
+        uint endX =  u + (uint)inflation / 2.0f;
+        uint endY =  v + (uint)inflation / 2.0f;
+        for (int y = startY; y <= endY; ++y) {
+            uint tmp = y * image_width;
+            for (int x = startX; x <= endX; ++x) {
+                drawPixel(projection, offset, x, y, projected_point.z, image_width, image_height, colors, depths);
+            }
+        }
+    }
 }
 """
 
@@ -76,29 +121,39 @@ class CameraProjector:
     def debug(self, msg):
         if self.dbg:
             print("Projector - %s" % msg)
-    def project_points_to_camera_opencl(self, points_3d, colors, extrinsic_matrix, camera_matrix, h, w, filterPointsBehindCamera=True, sortPointsByZ=True): 
+    def project_points_to_camera_opencl(self, points_3d, colors, extrinsic_matrix, camera_matrix, inflation=1): 
         if self.program.get_build_info(self.device, cl.program_build_info.STATUS) > 0:
             raise ValueError("Kernel not compiled, please run .init() method")
         begin = time.time()
         ### make points homogenous if not already
         if points_3d.shape[1] == 3:
             points_3d = np.hstack((points_3d, np.ones((points_3d.shape[0], 1), dtype=points_3d.dtype)))
-        projection_result = np.empty_like(points_3d, dtype=np.float32)
+        ### get image props
+        image_width = int(camera_matrix[0,2] * 2.0)
+        image_height = int(camera_matrix[1,2] * 2.0)
+        ### create outputs
+        projection_result = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
+        ### return if no points
+        if len(points_3d) == 0:
+            return projection_result
+        ### chunks
         a,b,c = self.device.max_work_item_sizes
-        N = a*b 
+        N = a*b
         chunks = int(np.floor(len(points_3d) / N) + 1)
         self.debug("processing %s points in %s chunks" % (len(points_3d), chunks))
+        projection_depths = np.full((image_height, image_width), -99.999, dtype=np.float16) 
         chunk_ranges = split_array_indices(len(points_3d), chunks)
-        projection_result = np.empty_like(points_3d, dtype=np.float32)
+        colors_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=colors.flatten())
+        intrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=camera_matrix.flatten().astype(np.float32))
+        extrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=extrinsic_matrix.flatten().astype(np.float32))
+        result_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY, projection_result.size * projection_result.itemsize)
         start = time.time()
-        for start_index, end_index in chunk_ranges:
+        for chunk_counter, indices in enumerate(chunk_ranges):
+            start_index, end_index = indices
             points = points_3d[start_index:end_index].astype(np.float32)
-            result = np.zeros_like(points, dtype=np.float32)
             # Create OpenCL buffers for the data
-            points_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=points.flatten().astype(np.float32))
-            intrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=camera_matrix.flatten().astype(np.float32))
-            extrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=extrinsic_matrix.flatten().astype(np.float32))
-            result_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY, result.size * result.itemsize)
+            points_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=points.flatten())
+            depth_buffer = cl.Buffer(self.context, cl.mem_flags.READ_WRITE | cl.mem_flags.COPY_HOST_PTR, hostbuf=projection_depths.flatten())
             b1 = points_buffer.get_info(cl.mem_info.SIZE)
             b2 = intrinsic_camera_buffer.get_info(cl.mem_info.SIZE)
             b3 = extrinsic_camera_buffer.get_info(cl.mem_info.SIZE)
@@ -106,36 +161,21 @@ class CameraProjector:
             globalSize = next_power_of_2(b1+b2+b3+b4)
             localSize = 128
             # Execute the OpenCL kernel
-            self.program.project_points(self.queue, (globalSize,), (localSize,), points_buffer, result_buffer, extrinsic_camera_buffer, intrinsic_camera_buffer)
+            self.program.project_points(self.queue, (globalSize,), (localSize,), np.uint32(start_index), points_buffer, colors_buffer, depth_buffer, 
+                                        result_buffer, extrinsic_camera_buffer, intrinsic_camera_buffer, 
+                                        np.uint8(inflation)
+            )
             # Retrieve the result from the OpenCL buffer
-            cl.enqueue_copy(self.queue, result, result_buffer).wait()
-            projection_result[start_index:end_index] = result
+            cl.enqueue_copy(self.queue, projection_result, result_buffer).wait()
+            ### if this is not the last chunk
+            if chunk_counter+1 < len(chunk_ranges):
+                ### copy back the depth buffer, for the next chunk iteration
+                cl.enqueue_copy(self.queue, projection_depths, depth_buffer).wait()
         self.debug("ProjectionDt: %s" % (time.time() - start))
-        ### filter points behind camera
-        if filterPointsBehindCamera:
-            start = time.time()
-            indices = np.where(
-                (projection_result[:,0] > w) | (projection_result[:,0] < 0)
-                | (projection_result[:,1] > h) | (projection_result[:,1] < 0)
-                | (projection_result[:,2] < 0))[0]
-            projection_result = projection_result[indices]
-            colors = colors[indices]
-            self.debug("FilterDt: %s" % (time.time() - start))
-        ### sort, so that near points are first
-        if sortPointsByZ:
-            start = time.time()
-            z_values = projection_result[:, 2]
-            sorted_indices = np.argsort(z_values)
-            #sorted_indices = np.argsort(z_values)[::-1] ## descendng
-            projection_result = projection_result[sorted_indices]
-            colors = colors[sorted_indices]
-            self.debug("SortDt: %s" % (time.time() - start))
-        ### done
-        self.debug("cycle: %s" % (time.time() - begin))
-        return projection_result, colors
+        return projection_result
 
 if __name__ == '__main__':
-    observer_position = np.array([0, -5.0, 0], dtype=np.float32)
+    observer_position = np.array([0, -4.0, 0], dtype=np.float32)
     # observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
 
     focal_length = 600
@@ -146,10 +186,12 @@ if __name__ == '__main__':
     cx = image_width / 2.0  # X-coordinate of the principal point
     cy = image_height / 2.0  # Y-coordinate of the principal point
 
-    # Define your camera matrix (example: perspective projection)
-    camera_matrix = np.array([[fx, 0, cx,0],
-                            [0, fy, cy,0],
-                            [0, 0, 1,0]], dtype=np.float32)
+    # Define your camera matrix
+    camera_matrix = np.array([
+        [fx, 0, cx,0],
+        [0, fy, cy,0],
+        [0, 0, 1, 0]
+    ], dtype=np.float32)
     #################### TEST default 3d
     ### +x forward, +y up, +z left
     rotation_matrix = np.array([[1, 0, 0],
@@ -165,7 +207,7 @@ if __name__ == '__main__':
         ### Left > cyan = Y-
         ### Up > red = Z+
         ### down > green = Z-
-        points_3d, colors = create_colored_cube_array(N=20, size=2.0)
+        points_3d, colors = create_colored_cube_array(N=100, size=2.0)
         colors = (colors * 255).astype(np.uint8)
         print(rotation_matrix)
         # tvec = np.array([observer_position[0], observer_position[1], observer_position[2]])
@@ -196,19 +238,11 @@ if __name__ == '__main__':
 
         print(len(points_3d))
         start = time.time()
-        points_2d, colors = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, image_height, image_width)
+        img = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, inflation=1)
         print(time.time() - start)
         ### channels in cv2 is bgr, not rgb - so we switch these up
         # Convert RGB array to BGR array
-        colors = colors[:, ::-1]
-        # visualize the 2D points using OpenCV
-        img = np.zeros((image_height, image_width, 3), dtype=np.uint8) 
-        for point, color in zip(points_2d, colors):
-            try:
-                img = cv2.circle(img, (int(point[0]), int(point[1])), 1, color.tolist(), -1) 
-            except:
-                print(point)
-                pass
+        img = img[:, :, ::-1]
         # Display the image
         cv2.imshow('Projected Points', img)
         cv2.waitKey(0)

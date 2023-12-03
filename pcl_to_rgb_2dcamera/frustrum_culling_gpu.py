@@ -130,6 +130,8 @@ class FrustumFilter:
     def filter_points_by_frustum_opencl(self, points_3d, frustum_planes):
         if self.program.get_build_info(self.device, cl.program_build_info.STATUS) > 0:
             raise ValueError("Kernel not compiled, please run .init() method")
+        if len(points_3d) == 0:
+            return np.array([])
         ### calculate amount of queries needed for all points
         a,b,c = self.device.max_work_item_sizes
         N = a*b 

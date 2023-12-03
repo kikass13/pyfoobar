@@ -36,15 +36,15 @@ def create_colored_cube_array(N=20, size=1.0):
     side_bottom, color_bottom = generate_side(N, [0, -0.5, 0],np.array([0, -1, 0]), [0.0, 1.0, 1.0])  # Cyan
 
     ### draw up line
-    arrorx = np.tile(0.0, (100,1))
-    arrory = np.tile(0.0, (100,1))
-    arrowz = np.linspace(0, 1.0, 100)
+    arrorx = np.tile(0.0, (250,1))
+    arrory = np.tile(0.0, (250,1))
+    arrowz = np.linspace(0, 1.0, 250)
     arrow = np.column_stack((arrorx, arrory, arrowz))
-    arrowcolor = np.tile(np.array([0.7, 0.7, 0.7]), (100,1))
+    arrowcolor = np.tile(np.array([0.7, 0.7, 0.7]), (250,1))
 
     # Combine all sides
-    all_side_points = np.concatenate([side_front, side_back, side_right, side_left, side_top, side_bottom, arrow])
-    all_side_colors = np.concatenate([color_front, color_back, color_right, color_left, color_top, color_bottom, arrowcolor])
+    all_side_points = np.concatenate([side_front, side_back, side_right, side_left, side_top, side_bottom, arrow], dtype=np.float32)
+    all_side_colors = np.concatenate([color_front, color_back, color_right, color_left, color_top, color_bottom, arrowcolor], dtype=np.float32)
     # all_side_points = np.concatenate([side_front ])
     # all_side_colors = np.concatenate([color_front])
 
