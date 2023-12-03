@@ -14,8 +14,8 @@ xyzrgb = points.astype(np.float32, copy=False)
 points_3d = xyzrgb[:,:3].astype(np.float32, copy=False)
 colors = (xyzrgb[:,3:].astype(np.float32, copy=False) * 255).astype(np.uint8)
 # # Sample every nth point
-# points_3d = points_3d[::4]
-# colors = colors[::4]
+points_3d = points_3d[::3]
+colors = colors[::3]
 # print("Downsampled Points: %s" % len(points_3d))
 
 ### testing with colored cube
@@ -32,7 +32,7 @@ fov = 50.0  # Field of view in degrees
 aspect_ratio = 4/3  # Width/height ratio of the viewport
 near = 0.2
 far = 50.0
-focal_length = 600
+focal_length = 1150
 image_width = 1200
 image_height = 900
 fx = focal_length  # Focal length in x-direction
@@ -147,7 +147,7 @@ if True:
 		#########################################################
 		elif projectorMode == "opencl":
 			startTime3 = time.time()
-			img = projector.project_points_to_camera_opencl(filtered_points_3d, filtered_colors, extrinsic_matrix, camera_matrix, inflation=2)
+			img = projector.project_points_to_camera_opencl(filtered_points_3d, filtered_colors, extrinsic_matrix, camera_matrix, inflation=6)
 			print("ProjectionDt + RenderDt: %s" % (time.time() - startTime3))
 		#########################################################
 
