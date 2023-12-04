@@ -42,3 +42,12 @@ print("MAXIMUM POINTS PER QUERY POSSIBLE = %s" % n)
 
 queriesNeeded = np.ceil(global_dimensions / n) + 1
 print("QUERYS NEEDED (+safety/overhead margin) = %s" % queriesNeeded)
+
+print("==============================================================")
+# Check if the command queue supports out-of-order execution
+out_of_order_exec = queue.properties & cl.command_queue_properties.OUT_OF_ORDER_EXEC_MODE_ENABLE != 0
+# Print the result
+if out_of_order_exec:
+    print("Command queue supports out-of-order execution.")
+else:
+    print("Command queue does not support out-of-order execution.")

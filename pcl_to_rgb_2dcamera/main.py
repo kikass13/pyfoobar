@@ -35,7 +35,7 @@ far = 50.0
 focal_length = 1150
 image_width = 1200
 image_height = 900
-fx = focal_length  # Focal length in x-direction
+fx = focal_length  # Focal length in x-direction   [-fx means a vertical flip of the resulting image]
 fy = focal_length  # Focal length in y-direction
 cx = image_width / 2.0  # X-coordinate of the principal point
 cy = image_height / 2.0  # Y-coordinate of the principal point
@@ -43,7 +43,7 @@ cy = image_height / 2.0  # Y-coordinate of the principal point
 # Create the translation vector (in our cooordinate system , before rotation)
 # observer_position = np.array([-70.0, 8.0, 1.0], dtype=np.float32)
 # observer_position = np.array([50.0, -8.0, 1.0], dtype=np.float32)
-observer_position = np.array([8.0, -70.0, 1.0], dtype=np.float32)
+observer_position = np.array([-8.0, -70.0, 1.0], dtype=np.float32)
 ### observer direction into positive x axis
 # observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
 ### observer direction into positive z axis
@@ -55,7 +55,11 @@ observer_direction = np.array([0.0, 0.0, 1.0]).astype(np.float32)
 # rotation_matrix = np.array([[1, 0, 0],
 # 							[0, 1, 0],
 # 							[0, 0, 1]], dtype=np.float32) 
-rotation_matrix = np.array([[0, -1, 0],
+# rotation_matrix = np.array([[0, -1, 0],
+# 							[0, 0, 1],
+# 							[-1, 0, 0]], dtype=np.float32) 
+### same as before but left/right switch
+rotation_matrix = np.array([[0, 1, 0],	
 							[0, 0, 1],
 							[-1, 0, 0]], dtype=np.float32) 
 
@@ -72,12 +76,8 @@ if True:
 	extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
 	extrinsic_matrix = np.vstack([extrinsic_matrix, [0,0,0,1]])
 	# Camera matrix (assuming a simple perspective camera)
-	fx = focal_length  # Focal length in x-direction
-	fy = focal_length  # Focal length in y-direction
-	cx = image_width / 2.0  # X-coordinate of the principal point
-	cy = image_height / 2.0  # Y-coordinate of the principal point
 	camera_matrix = np.array([
-		[-fx, 0, cx,0],			### -fx means a vertical flip of the resulting image
+		[fx, 0, cx,0],			### -fx means a vertical flip of the resulting image
 		[0, fy, cy,0],
 		[0, 0, 1, 0]
 	], dtype=np.float32)

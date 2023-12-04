@@ -23,8 +23,8 @@ kernel_code = """
 void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixeldepth, uint image_width, uint image_height,
                __constant uchar* colors, __global half* depths)
 {
-    /// check if pixel behind camera && inside image boundaries
-    if(pixeldepth < 0 &&u > 0 && u < image_width && v > 0 && v < image_height)
+    // check if pixel is inside image boundaries
+    if(u >= 0 && u < image_width && v >= 0 && v < image_height)
     {
         uint i = v * image_width + u;
         half d = depths[i];
@@ -39,11 +39,15 @@ void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixe
     }
 }
 
-__kernel void project_points(uint offset, __constant float* points, __constant uchar* colors, __global half* depths, 
+__kernel void project_points(uint N, uint offset, __constant float* points, __constant uchar* colors, __global half* depths, 
                             __global uchar* projection, __constant float* extrinsic_matrix, __constant float* intrinsic_matrix,
                             uchar inflation) 
 {
     int gid = get_global_id(0);
+
+    if(gid > N){
+        return;
+    }
     
     // load homogenous point
     float4 point = vload4(gid, points);
@@ -81,6 +85,11 @@ __kernel void project_points(uint offset, __constant float* points, __constant u
         projected_point.z = projected_point.z;
     }
 
+    // check if pixel behind camera 
+    if(projected_point.z > 0 ){
+        return;
+    }
+
     // get pixel depth of the calculated pixel
     // if our depth is greater then that existing depth, we overwrite it
     /// we round the pixel coordinates to nearest integer
@@ -95,13 +104,13 @@ __kernel void project_points(uint offset, __constant float* points, __constant u
     }
     // draw rect around pixel 
     else{
-        uint startX = u - (uint)inflation / 2.0f;
-        uint startY = v - (uint)inflation / 2.0f;
-        uint endX =  u + (uint)inflation / 2.0f;
-        uint endY =  v + (uint)inflation / 2.0f;
-        for (int y = startY; y <= endY; ++y) {
+        uint startX = clamp((uint)u - (uint)(inflation / 2.0f), (uint)0, (uint)image_width);
+        uint startY = clamp((uint)v - (uint)(inflation / 2.0f), (uint)0, (uint)image_height);
+        uint endX = clamp((uint)u + (uint)(inflation / 2.0f), (uint)0, (uint)image_width);
+        uint endY = clamp((uint)v + (uint)(inflation / 2.0f), (uint)0, (uint)image_height);
+        for (uint y = startY; y <= endY; ++y) {
             uint tmp = y * image_width;
-            for (int x = startX; x <= endX; ++x) {
+            for (uint x = startX; x <= endX; ++x) {
                 drawPixel(projection, index, x, y, projected_point.z, image_width, image_height, colors, depths);
             }
         }
@@ -157,7 +166,6 @@ class CameraProjector:
         intrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=camera_matrix.flatten().astype(np.float32))
         extrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=extrinsic_matrix.flatten().astype(np.float32))
         result_buffer = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY, projection_result.size * projection_result.itemsize)
-        start = time.time()
         for chunk_counter, indices in enumerate(chunk_ranges):
             start_index, end_index = indices
             points = points_3d[start_index:end_index].astype(np.float32)
@@ -170,21 +178,17 @@ class CameraProjector:
             b4 = result_buffer.get_info(cl.mem_info.SIZE)
             globalSize = next_power_of_2(b1+b2+b3+b4)
             localSize = 128
-            # Execute the OpenCL kernel
-            self.program.project_points(self.queue, (globalSize,), (localSize,), np.uint32(start_index), points_buffer, colors_buffer, depth_buffer, 
+            # define the OpenCL kernel
+            event1 = self.program.project_points(self.queue, (globalSize,), (localSize,), np.uint32(len(points)), np.uint32(start_index), 
+                                        points_buffer, colors_buffer, depth_buffer, 
                                         result_buffer, extrinsic_camera_buffer, intrinsic_camera_buffer, 
                                         np.uint8(inflation)
             )
-            # Retrieve the result from the OpenCL buffer
-            cl.enqueue_copy(self.queue, projection_result, result_buffer).wait()
-            ### if this is not the last chunk
-            if chunk_counter+1 < len(chunk_ranges):
-                ### copy back the depth buffer, for the next chunk iteration
-                cl.enqueue_copy(self.queue, projection_depths, depth_buffer).wait()
-        self.debug("ProjectionDt: %s" % (time.time() - start))
-        # return cv2.flip(projection_result, 1)
+            event2 = cl.enqueue_copy(self.queue, projection_result, result_buffer)
+            cl.wait_for_events([event1, event2])
+        self.debug("ProjectionDt: %s" % (time.time() - begin))
         return projection_result
-
+    
 if __name__ == '__main__':
     observer_position = np.array([0, -4.0, 0], dtype=np.float32)
     # observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
