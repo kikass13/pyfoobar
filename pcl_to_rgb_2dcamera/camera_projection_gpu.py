@@ -2,6 +2,7 @@ import numpy as np
 import pyopencl as cl
 import cv2
 import time
+import sys
 
 from chunksSplit import split_array_indices
 from coloredCube import create_colored_cube_array
@@ -212,7 +213,64 @@ if __name__ == '__main__':
     rotation_matrix = np.array([[1, 0, 0],
                                 [0, 1, 0],
                                 [0, 0, 1]], dtype=np.float32) 
+    ### look at the cube from the bottom up
+    rotation_matrix = np.array([[1, 0, 0],
+                                [0, 0, 1],
+                                [0, -1, 0]], dtype=np.float32)
+    import angle
     
+    ### external observer rotation
+    roll = np.radians(0)  # Example roll angle in radians
+    pitch = np.radians(0)  # Example yaw angle in radians
+    yaw = np.radians(0)  # Example pitch angle in radians
+
+    points_3d, colors = create_colored_cube_array(N=100, size=2.0)
+    colors = (colors * 255).astype(np.uint8)
+    projector = CameraProjector()
+    projector.init()
+    while(cv2.waitKey(1) == -1): ###1 millisecond
+        newRot = angle.rodrigues(np.array([roll, pitch, yaw]))
+        resultRot = np.dot(rotation_matrix, newRot)
+        tvec = np.array([0.0,0.0,-4.0])
+        #tvec = np.array([observer_position[0], observer_position[2], observer_position[1]])
+        ### homogenous roation and translation vectors before building extrinsic matrix
+        ### we change the rotation matrix around 
+        extrinsic_matrix = np.column_stack((resultRot, tvec))
+        extrinsic_matrix = np.vstack([extrinsic_matrix, [0,0,0,1]])
+        ### do projection
+        start = time.time()
+        img = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, inflation=1)
+        # print(time.time() - start)
+        ### channels in cv2 is bgr, not rgb - so we switch these up
+        # Convert RGB array to BGR array
+
+        ## write angle into image
+        text1 = "rol: %f" % round(np.degrees(roll),2)
+        text2 = "pit: %f" % round(np.degrees(pitch),2)
+        text3 = "yaw: %f" % round(np.degrees(yaw),2)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1
+        font_color = (255, 255, 255)  # White
+        thickness = 2
+        cv2.putText(img, text1, (50,50), font, font_scale, font_color, thickness)
+        cv2.putText(img, text2, (50,150), font, font_scale, font_color, thickness)
+        cv2.putText(img, text3, (50,250), font, font_scale, font_color, thickness)
+        img = img[:, :, ::-1]
+        cv2.imshow('Projected Points', img)
+        cv2.waitKey(1)
+        roll += np.radians(1)
+        pitch += np.radians(2)
+
+        yaw +=  np.radians(3)
+        time.sleep(0.01)
+
+
+    sys.exit(0)
+
+
+
+    projector = CameraProjector()
+    projector.init()
     from rotatcheck import generate_rotation_matrices
     for rotation_matrix in generate_rotation_matrices():
         ### create colored cube for reference
@@ -248,9 +306,6 @@ if __name__ == '__main__':
         extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
         extrinsic_matrix = np.vstack([extrinsic_matrix, [0,0,0,1]])
         ### do projection
-        projector = CameraProjector()
-        projector.init()
-
         print(len(points_3d))
         start = time.time()
         img = projector.project_points_to_camera_opencl(points_3d, colors, extrinsic_matrix, camera_matrix, inflation=1)
