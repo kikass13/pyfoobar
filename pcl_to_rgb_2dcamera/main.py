@@ -1,6 +1,7 @@
 import numpy as np 
 import cv2 
 import time
+import sys
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.spatial.distance import cdist
@@ -8,13 +9,21 @@ from scipy.spatial.distance import cdist
 from frustrum_culling_gpu import FrustumFilter
 from camera_projection_gpu import CameraProjector
 from coloredCube import create_colored_cube_array
+import angle
 
 points = np.load("downsample_ruddington.npy", allow_pickle=True)
 xyzrgb = points.astype(np.float32, copy=False)
 points_3d = xyzrgb[:,:3].astype(np.float32, copy=False)
+points_xyz_alternative = points_3d
+### change right to left
+points_xyz_alternative[:, 1] *= -1.0
+### set origin of coordinate system (map origin)
+map_origin = np.array([-70.0, -8.0, 0.0], dtype=np.float32)
+# map_origin = np.array([70.0, 8.0, 0.0], dtype=np.float32)
+points_xyz_alternative -= map_origin
 colors = (xyzrgb[:,3:].astype(np.float32, copy=False) * 255).astype(np.uint8)
 # # Sample every nth point
-points_3d = points_3d[::3]
+points_3d = points_xyz_alternative[::3]
 colors = colors[::3]
 # print("Downsampled Points: %s" % len(points_3d))
 
@@ -22,13 +31,8 @@ colors = colors[::3]
 # points_3d, colors = create_colored_cube_array(N=100, size=2.0)
 # colors = (colors * 255).astype(np.uint8)
 
-startTime1 = time.time()
-frustumFilter = FrustumFilter()
-frustumFilter.init()
-projector = CameraProjector()
-projector.init()
+fov = 50.0  # Field of view in degreesmap_origin = np.array([8.0, -70.0, 0.0], dtype=np.float32)
 
-fov = 50.0  # Field of view in degrees
 aspect_ratio = 4/3  # Width/height ratio of the viewport
 near = 0.2
 far = 50.0
@@ -41,39 +45,58 @@ cx = image_width / 2.0  # X-coordinate of the principal point
 cy = image_height / 2.0  # Y-coordinate of the principal point
 
 # Create the translation vector (in our cooordinate system , before rotation)
-# observer_position = np.array([-70.0, 8.0, 1.0], dtype=np.float32)
-# observer_position = np.array([50.0, -8.0, 1.0], dtype=np.float32)
-observer_position = np.array([-8.0, -70.0, 1.0], dtype=np.float32)
-### observer direction into positive x axis
-# observer_direction = np.array([1.0, .0, 0]).astype(np.float32)
-### observer direction into positive z axis
-observer_direction = np.array([0.0, 0.0, 1.0]).astype(np.float32)
+observer_position = np.array([0,0,-40], dtype=np.float32)
 
 ##### hmmm default, opencv has to use other convention anyways
 #####################
 ### +x forward, +y up, +z left
-# rotation_matrix = np.array([[1, 0, 0],
-# 							[0, 1, 0],
-# 							[0, 0, 1]], dtype=np.float32) 
-# rotation_matrix = np.array([[0, -1, 0],
-# 							[0, 0, 1],
-# 							[-1, 0, 0]], dtype=np.float32) 
-### same as before but left/right switch
-rotation_matrix = np.array([[0, 1, 0],	
-							[0, 0, 1],
-							[-1, 0, 0]], dtype=np.float32) 
+rotation_matrix = np.array([[1, 0, 0],
+							[0, 1, 0],
+							[0, 0, 1]], dtype=np.float32) 
+print(rotation_matrix)
+### external observer rotation
+### this works good for cube
+# roll = np.radians(90)  # Example roll angle in radians
+# pitch = np.radians(0)  # Example yaw angle in radians
+# yaw = np.radians(90)  # Example pitch angle in radians
+### this works for the map 
+# roll = np.radians(-90)  # Example roll angle in radians
+# pitch = np.radians(0)  # Example yaw angle in radians
+# yaw = np.radians(90)  # Example pitch angle in radians
+roll = np.radians(0)  # Example roll angle in radians
+pitch = np.radians(0)  # Example yaw angle in radians
+yaw = np.radians(180)  # Example pitch angle in radians
+newRot1 = angle.rodrigues(np.array([roll, 0, 0]))
+newRot2 = angle.rodrigues(np.array([0, pitch, 0]))
+newRot3 = angle.rodrigues(np.array([0, 0, yaw]))
+### apply all angles (rpy)
+# rotation_matrix = np.dot(rotation_matrix, newRot1)
+# rotation_matrix = np.dot(rotation_matrix, newRot2)
+final_rotation_matrix = np.dot(rotation_matrix, newRot3)
+rotated_observer_position = np.dot(final_rotation_matrix, observer_position)
+print("========================")
+print(final_rotation_matrix)
+print(observer_position)
+print(rotated_observer_position)
+print("========================")
+
+startTime1 = time.time()
+frustumFilter = FrustumFilter()
+frustumFilter.init()
+projector = CameraProjector()
+projector.init()
 
 # from rotatcheck import generate_rotation_matrices
 # for rotation_matrix in generate_rotation_matrices():
 if True:
-	print(rotation_matrix)
 	### switch up z and y? because for some reason our image projection stuff looks differently onto the world
 	### in comparison to our frustum filter
 	# tvec = np.array([observer_position[0], -observer_position[2], -observer_position[1]])
-	tvec = np.array([observer_position[0], -observer_position[2], observer_position[1]])
+	# tvec = np.dot(resultRot, observer_position)
 	#####################
 	# Combine rotation and translation into extrinsic matrix
-	extrinsic_matrix = np.column_stack((rotation_matrix, tvec))
+	# extrinsic_matrix = np.column_stack((final_rotation_matrix, rotated_observer_position))
+	extrinsic_matrix = np.column_stack((rotation_matrix, observer_position))
 	extrinsic_matrix = np.vstack([extrinsic_matrix, [0,0,0,1]])
 	# Camera matrix (assuming a simple perspective camera)
 	camera_matrix = np.array([

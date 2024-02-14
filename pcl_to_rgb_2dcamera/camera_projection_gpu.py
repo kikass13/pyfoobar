@@ -186,7 +186,8 @@ class CameraProjector:
                                         np.uint8(inflation)
             )
             event2 = cl.enqueue_copy(self.queue, projection_result, result_buffer)
-            cl.wait_for_events([event1, event2])
+            event3 = cl.enqueue_copy(self.queue, projection_depths, depth_buffer)
+            cl.wait_for_events([event1, event2, event3])
         self.debug("ProjectionDt: %s" % (time.time() - begin))
         return projection_result
     
@@ -258,10 +259,9 @@ if __name__ == '__main__':
         img = img[:, :, ::-1]
         cv2.imshow('Projected Points', img)
         cv2.waitKey(1)
-        roll += np.radians(1)
-        pitch += np.radians(2)
-
-        yaw +=  np.radians(3)
+        # roll += np.radians(1)
+        # pitch += np.radians(2)
+        # yaw +=  np.radians(3)
         time.sleep(0.01)
 
 
