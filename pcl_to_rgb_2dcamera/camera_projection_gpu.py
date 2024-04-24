@@ -21,14 +21,14 @@ def next_power_of_2(n):
 
 # Define your OpenCL kernel code
 kernel_code = """
-void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixeldepth, uint image_width, uint image_height,
-               __constant uchar* colors, __global half* depths)
+void drawPixel(__global uchar* projection, uint index, uint u, uint v, float pixeldepth, uint image_width, uint image_height,
+               __constant uchar* colors, __global float* depths)
 {
     // check if pixel is inside image boundaries
     if(u >= 0 && u < image_width && v >= 0 && v < image_height)
     {
         uint i = v * image_width + u;
-        half d = depths[i];
+        float d = depths[i];
         if(pixeldepth < d){
             return;
         }
@@ -40,7 +40,7 @@ void drawPixel(__global uchar* projection, uint index, uint u, uint v, half pixe
     }
 }
 
-__kernel void project_points(uint N, uint offset, __constant float* points, __constant uchar* colors, __global half* depths, 
+__kernel void project_points(uint N, uint offset, __constant float* points, __constant uchar* colors, __global float* depths, 
                             __global uchar* projection, __constant float* extrinsic_matrix, __constant float* intrinsic_matrix,
                             uchar inflation) 
 {
@@ -161,7 +161,7 @@ class CameraProjector:
         N = a*b
         chunks = int(np.floor(len(points_3d) / N) + 1)
         self.debug("processing %s points in %s chunks" % (len(points_3d), chunks))
-        projection_depths = np.full((image_height, image_width), -99.999, dtype=np.float16) 
+        projection_depths = np.full((image_height, image_width), -99.999, dtype=np.float32) 
         chunk_ranges = split_array_indices(len(points_3d), chunks)
         colors_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=colors.flatten())
         intrinsic_camera_buffer = cl.Buffer(self.context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=camera_matrix.flatten().astype(np.float32))
@@ -220,6 +220,9 @@ if __name__ == '__main__':
                                 [0, -1, 0]], dtype=np.float32)
     import angle
     
+    cv2.startWindowThread()
+    cv2.namedWindow("preview")
+
     ### external observer rotation
     roll = np.radians(0)  # Example roll angle in radians
     pitch = np.radians(0)  # Example yaw angle in radians
@@ -257,11 +260,11 @@ if __name__ == '__main__':
         cv2.putText(img, text2, (50,150), font, font_scale, font_color, thickness)
         cv2.putText(img, text3, (50,250), font, font_scale, font_color, thickness)
         img = img[:, :, ::-1]
-        cv2.imshow('Projected Points', img)
+        cv2.imshow("preview", img)
         cv2.waitKey(1)
-        # roll += np.radians(1)
-        # pitch += np.radians(2)
-        # yaw +=  np.radians(3)
+        roll += np.radians(1)
+        pitch += np.radians(2)
+        yaw +=  np.radians(3)
         time.sleep(0.01)
 
 
