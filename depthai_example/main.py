@@ -26,9 +26,9 @@ right.setCamera("right")
 right.setResolution(depthai.MonoCameraProperties.SensorResolution.THE_800_P)
 #######################################
 cam_stereo = pipeline.createStereoDepth()
-cam_stereo.initialConfig.setConfidenceThreshold(150)
+# cam_stereo.initialConfig.setConfidenceThreshold(150)
 # cam_stereo.setDefaultProfilePreset(depthai.node.StereoDepth.PresetMode.HIGH_DENSITY)
-cam_stereo.initialConfig.setMedianFilter(depthai.MedianFilter.KERNEL_7x7)
+# cam_stereo.initialConfig.setMedianFilter(depthai.MedianFilter.KERNEL_7x7)
 # cam_stereo.initialConfig.setLeftRightCheckThreshold(10)
 # Better handling for occlusions:
 cam_stereo.setLeftRightCheck(True)
@@ -56,7 +56,7 @@ xout_rgb = pipeline.createXLinkOut()
 # For the rgb camera output, we want the XLink stream to be named "rgb"
 xout_rgb.setStreamName("rgb")
 # Linking camera preview to XLink input, so that the frames will be sent to host
-cam_rgb.preview.link(xout_rgb.input)
+cam_rgb.video.link(xout_rgb.input)
 
 # The same XLinkOut mechanism will be used to receive nn results
 xout_nn = pipeline.createXLinkOut()
