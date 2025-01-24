@@ -1,6 +1,7 @@
 import time 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 
 # Function to calculate voxel size
 def calculate_voxel_size(Lx, Ly, Nx, Ny):
@@ -55,24 +56,23 @@ def check_path(grid_map, path, voxel_size):
             status.append(True)  # Free space
     return status
 
-def interpolate_trajectory(trajectory, num_points=10):
-    points = []
-    for p1, p2 in zip(trajectory[:], trajectory[1:]):
-        # Extract x and y coordinates from trajectory
-        x1_coord, y1_coord = p1
-        x2_coord, y2_coord = p2
-        # Use linear interpolation to creaore points
-        x_interp = np.linspace(x1_coord, x2_coord, num_points)
-        y_interp = np.linspace(y1_coord, y2_coord, num_points)
-        points.extend(np.column_stack((x_interp, y_interp)))
-    return np.array(points)
+def interpolate_waypoints(waypoints, num_points=10):
+    x, y = zip(*waypoints)  # Separate into x and y
+    # Interpolating to n points
+    x_new = np.linspace(min(x), max(x), num_points)  # Generate n evenly spaced x-values
+    y_interpolator = interp1d(x, y, kind='linear')  # Linear interpolation for y
+    y_new = y_interpolator(x_new)
+    interpolated_points = list(zip(x_new, y_new))
+    return interpolated_points
 
 def posesFromPoints(points):
     poses = []
     for i in range(len(points)-1):
         x, y = points[i]
         x_next, y_next = points[i + 1]
-        theta = np.arctan2(y_next - y, x_next - x)
+        ### invert x and y cause of image coordinates?
+        # theta = np.arctan2(y_next - y, x_next - x)
+        theta = np.arctan2(x_next - x, y_next - y)
         poses.append((x,y,theta))
     poses.append((points[-1][0], points[-1][1], theta))
     return np.vstack([poses])
@@ -105,8 +105,8 @@ if __name__ == "__main__":
     grid_map = create_grid_map(Lx, Ly, Nx, Ny)
 
     # Simulate a simple trajectory
-    trajectory = np.array([(20.0, 1.0), (15.0, 5.0), (17.0, 12.0), (23.0, 20.0)])  # List of (x, y) waypoints
-    trajectory = interpolate_trajectory(trajectory, num_points=1000)
+    trajectory = np.array([(20.0, 1.0), (15.0, -2.0), (17.0, 12.0), (23.0, 20.0)])  # List of (x, y) waypoints
+    trajectory = interpolate_waypoints(trajectory, num_points=1000)
     # Check if the adjusted trajectory intersects with any occupied voxels and get the status for each point
     t = time.time()
     path_status = check_path(grid_map, trajectory, (vx,vy))

@@ -1,5 +1,6 @@
 import time 
 import numpy as np
+import sys
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, Point
 from shapely.affinity import rotate, translate
@@ -8,33 +9,20 @@ from shapely.ops import unary_union
 from occupancy_trajectory_check import calculate_voxel_size, create_grid_map, interpolate_waypoints, posesFromPoints, drawTrajectory
 from driving_corridor import create_robot_footprint, create_convex_driving_corridor, create_concave_driving_corridor, project_footprint_to_corridor, visualize_corridor
 from findcontours import findObstaclePolygons, drawPolygons
+from occupany_trajectory_polygon_check import check_footprints_to_poly_intersect, drawIntersection 
 
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-
-def check_footprints_to_poly_intersect(p1, others):
-    intersections = []
-    for p2 in others:
-        intersection = p1.intersection(p2)
-        if not intersection.is_empty:
-            intersections.append(intersection)
-    return intersections
-
-def drawIntersection(ax, intersection):
-    # Plot the intersection
-    if intersection.is_valid:
-        if intersection.geom_type == 'Polygon':
-            x_int, y_int = intersection.exterior.xy
-            ax.fill(x_int, y_int, color='purple', alpha=0.7, label='Intersection')
-            ax.plot(x_int, y_int, color='purple', linewidth=2)
-        elif intersection.geom_type == 'MultiPolygon':
-            for poly in intersection.geoms:
-                x_int, y_int = poly.exterior.xy
-                ax.fill(x_int, y_int, color='purple', alpha=0.7, label='Intersection')
-                ax.plot(x_int, y_int, color='purple', linewidth=2)
-        elif intersection.geom_type == 'LineString':
-            x_int, y_int = intersection.xy
-            ax.plot(x_int, y_int, color='purple', linewidth=2, label='Intersection')
-    return ax
+def split_into_chunks(lst, n_chunks):
+    chunk_size = len(lst) // n_chunks
+    remainder = len(lst) % n_chunks
+    chunks = []
+    start = 0
+    for i in range(n_chunks):
+        end = start + chunk_size + (1 if i < remainder else 0)
+        chunks.append(lst[start:end])
+        start = end
+    return chunks
 
 if __name__ == "__main__":
     # Physical dimensions of the grid map
@@ -62,21 +50,36 @@ if __name__ == "__main__":
     ##############################################################################
     t0 = time.time()
     t = time.time()
-    footprint_polygons = project_footprint_to_corridor(trajectory, robot_footprint, downsample=5)
-    print(f"corridor dt: {time.time() - t}")
+    print(f"projection poly dt: {time.time() - t}")
     t = time.time()
     obstacles = findObstaclePolygons(grid_map, (vx,vy))
     print(f"obstacle poly dt: {time.time() - t}")
     t = time.time()
-    intersections = check_footprints_to_poly_intersect(footprint_polygons, obstacles)
-    print(f"intersect check dt: {time.time() - t}")
+    n_cores = 4
+    chunks = split_into_chunks(trajectory, n_cores)
+    def work(data):
+        trajectory, obstacles, robot_footprint = data
+        projected_footprint_polygon = project_footprint_to_corridor(trajectory, robot_footprint, downsample=5)
+        intersections = check_footprints_to_poly_intersect(projected_footprint_polygon, obstacles)
+        return projected_footprint_polygon, intersections
+    start = time.perf_counter()
+    args = [(trajectory, obstacles, robot_footprint) for trajectory in chunks]
+    results = []
+    with ProcessPoolExecutor(max_workers=n_cores) as executor:
+        results = list(executor.map(work, args))
+    footprints_all, intersections_all = zip(*results)
+    footprints_combined = [item for item in footprints_all]
+    intersections_combined = [item for sublist in intersections_all for item in sublist]
+    end = time.perf_counter()
+    print(f"footprints check dt: {end - start}")
     print(f"=======================\nsum dt: {time.time() - t0}")
     ##### plots
     fig, ax = plt.subplots(1, 1)
     ax = drawTrajectory(ax, points)
-    ax = visualize_corridor(ax, footprint_polygons)
+    for footprint in footprints_combined:
+        ax = visualize_corridor(ax, footprint)
     ax = drawPolygons(ax, obstacles)
-    for i in intersections:
+    for i in intersections_combined:
         ax = drawIntersection(ax, i)
     plt.show()
 

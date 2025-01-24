@@ -6,7 +6,7 @@ from shapely.affinity import rotate, translate
 from shapely.ops import unary_union
 import matplotlib.pyplot as plt
 
-from occupancy_trajectory_check import drawTrajectory
+from occupancy_trajectory_check import interpolate_waypoints, posesFromPoints, drawTrajectory
 
 def create_robot_footprint(length, width):
     """
@@ -71,11 +71,11 @@ def project_footprint_to_corridor(trajectory, footprint, downsample=None):
         trajectory = trajectory[::downsample]
     footprints = [transform_footprint(footprint, pose) for pose in trajectory]
     combined_polygons = unary_union(footprints)  # Combine into a single polygon
-    inflated = combined_polygons
+    # inflated = combined_polygons
     ### inflation takes a loooong time ... damn
     # if inflation:
     #     inflated = combined_polygons.buffer(inflation, join_style=2)
-    return inflated
+    return combined_polygons
 
 def visualize_corridor(ax, footprint_polygons, corridor=None):
     """
@@ -83,20 +83,18 @@ def visualize_corridor(ax, footprint_polygons, corridor=None):
     :param corridor: Shapely Polygon of the driving corridor.
     :param trajectory: List of poses [(x, y, theta), ...].
     """
-
     if corridor:
         x, y = corridor.exterior.xy
-        ax.fill(x, y, color='lightblue', alpha=0.5, label='Driving Corridor')
-
+        ax.fill(x, y, color='orange', alpha=0.5, label='Driving Corridor')
     # Plot each polygon in the MultiPolygon
     if isinstance(footprint_polygons, MultiPolygon):
         for polygon in footprint_polygons.geoms:  # Access individual polygons
             x, y = polygon.exterior.xy  # Get the exterior boundary
-            ax.fill(x, y, color='lightblue', alpha=0.5, label='Driving Corridor' if polygon == footprint_polygons.geoms[0] else None)
+            ax.fill(x, y, color='lightblue', alpha=1.0, label='Driving Corridor' if polygon == footprint_polygons.geoms[0] else None)
             ax.plot(x, y, color='blue', linewidth=1)
     else:
         x, y = footprint_polygons.exterior.xy  # Get the exterior coordinates of the single polygon
-        ax.fill(x, y, color='lightblue', alpha=0.5, label='Combined Polygon')
+        ax.fill(x, y, color='lightblue', alpha=1.0, label='Combined Polygon')
         ax.plot(x, y, color='blue', linewidth=1)  # Draw the boundary
     return ax
 
@@ -106,12 +104,15 @@ if __name__ == "__main__":
     robot_width = 0.5   # meters
 
     # Trajectory: [(x, y, theta), ...]
-    trajectory = np.array([
-        (0, 0, 0),
-        (1, 0.5, np.pi / 8),
-        (2, 1, np.pi / 6),
-        (3, 1.5, np.pi / 4)
+    waypoints = np.array([
+        (0, 0),
+        (1, 0.5),
+        (2, 1),
+        (3, 1.5)
     ])
+    # waypoints = np.array([(20.0, 1.0), (15.0, 5.0), (17.0, 12.0), (23.0, 20.0)])  # List of (x, y) waypoints
+    # waypoints = interpolate_waypoints(waypoints, num_points=1000)
+    trajectory = posesFromPoints(waypoints)
 
     # Create robot footprint
     robot_footprint = create_robot_footprint(robot_length, robot_width)
