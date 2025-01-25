@@ -24,46 +24,63 @@ def drawTrajectoryCollisions(ax, trajectory, unique_collision_indices):
 
 
 MAX_OBSTACLE_VERTICES = 10
+
 def preprocess_obstacles(obstacles, max_vertices):
     """Convert Shapely polygons to padded NumPy arrays."""
-    processed_obstacles = []
-    for obstacle in obstacles:
+    processed_obstacles = np.zeros((len(obstacles), 1 + max_vertices * 2))
+    for i, obstacle in enumerate(obstacles):
         vertices = np.array(obstacle.exterior.coords)[:-1]  # Remove closing point
         num_vertices = len(vertices)
-        # Pad with (0, 0) if necessary
-        if num_vertices < max_vertices:
-            padding = np.zeros((max_vertices - num_vertices, 2))
-            padded_vertices = np.vstack((vertices, padding))
-        else:
-            padded_vertices = vertices[:max_vertices]  # Truncate to max_vertices
-        processed_obstacles.append((padded_vertices, num_vertices))
+        vertices_flat = vertices.flatten()
+        # copy num vertices & copy vertices
+        processed_obstacles[i, 0] = num_vertices
+        processed_obstacles[i, 1:len(vertices_flat)+1] = vertices_flat
     return processed_obstacles
 
 @nb.njit()
-def prepare_combined_data(trajectory, processed_obstacles, max_vertices):
+def prepare_combined_data_optimized(trajectory, processed_obstacles):
     """
     Generate the combined data for the kernel using preprocessed obstacles.
     """
-    entry_size = 3 + 1 + max_vertices * 2  # (x, y, theta) + num_vertices + flattened vertices
+    entry_size = 3 + processed_obstacles.shape[1]  # (x, y, theta) + num_vertices + flattened vertices
     num_pairs = len(trajectory) * len(processed_obstacles)
     combined_data = np.zeros((num_pairs, entry_size), dtype=np.float32)
     idx = 0
     for i in range(len(trajectory)):
         x, y, theta = trajectory[i]
         for obstacle in processed_obstacles:
-            vertices, num_vertices = obstacle  # Extract obstacle data
+            # vertices, num_vertices = obstacle  # Extract obstacle data
+            num_vertices = obstacle[0]
+            vertices = obstacle[1:]
             # Write to the array
             combined_data[idx, 0] = x  # Trajectory x
             combined_data[idx, 1] = y  # Trajectory y
             combined_data[idx, 2] = theta  # Trajectory theta
             combined_data[idx, 3] = num_vertices  # Number of vertices
-            # Add the obstacle vertices (flattened)
-            for j in range(max_vertices):
-                combined_data[idx, 4 + j * 2] = vertices[j, 0]  # x-coordinate
-                combined_data[idx, 4 + j * 2 + 1] = vertices[j, 1]  # y-coordinate
+            combined_data[idx, 4:] = vertices
             idx += 1
     return entry_size, combined_data
-prepare_combined_data(np.zeros((1000,3), dtype=np.float32), [(np.zeros((MAX_OBSTACLE_VERTICES, 2)), 10)], MAX_OBSTACLE_VERTICES) ### numba precompile
+prepare_combined_data_optimized(np.zeros((1000,3), dtype=np.float32), np.zeros((200, 1+MAX_OBSTACLE_VERTICES*2))) ### numba precompile
+
+### despite this function using numpy broadcast funtions, it is slower by a factor of 2 to 4 than the numba version
+# def prepare_combined_data_vectorized(trajectory, processed_obstacles):
+#     """
+#     Vectorized generation of combined data for the kernel.
+#     """
+#     num_trajectory = trajectory.shape[0]
+#     num_obstacles = processed_obstacles.shape[0]
+#     ### Calculate the entry size: (x, y, theta) + num_vertices + max_vertices * 2
+#     entry_size = 3 + processed_obstacles.shape[1]
+#     ### Preallocate combined data array
+#     combined_data = np.zeros((num_trajectory * num_obstacles, entry_size), dtype=np.float32)
+#     ### Create trajectory-obstacle pairs using broadcasting
+#     trajectory_repeated = np.repeat(trajectory, num_obstacles, axis=0)
+#     obstacles_tiled = np.tile(processed_obstacles, (num_trajectory, 1))
+#     ### Fill combined_data
+#     combined_data[:, :3] = trajectory_repeated  # x, y, theta
+#     combined_data[:, 3:] = obstacles_tiled[:]  # num_vertices
+#     return entry_size, combined_data
+
 ########################################################################################################
 ### example setup for footprint, waypoints and obstacles
 # Example constants
@@ -71,7 +88,7 @@ footprint_length = 1.0
 footprint_width = 0.5
 # Example trajectory poses and obstacles
 waypoints = np.array([(20.0, 1.0), (15.0, -2.0), (17.0, 12.0), (23.0, 20.0)])  # List of (x, y) waypoints
-waypoints = interpolate_waypoints(waypoints, num_points=1000)
+waypoints = interpolate_waypoints(waypoints, num_points=300)
 trajectory = posesFromPoints(waypoints)
 Lx = 25  # Length in meters
 Ly = 25   # Width in meters
@@ -80,38 +97,34 @@ Ny = 100  # Number of cells along the width
 vx, vy = calculate_voxel_size(Lx, Ly, Nx, Ny)
 grid_map = create_grid_map(Lx, Ly, Nx, Ny).astype(np.uint8)
 obstacles = findObstaclePolygons(grid_map, (vx,vy))
+### duplicate obstacles for testing purposes
+obstacles *= 100
+print(f"trajectory points: {len(trajectory)}")
+print(f"obstacles count: {len(obstacles)}")
 ########################################################################################################
-t = time.time()
-### obstacle flatten, so that each waypoint can check against each obstacle polygon (with n vertices)
-# Flatten obstacles' vertices
-# obstacle_vertices = []
-# obstacle_sizes = []
-# for obstacle in obstacles:
-#     vertices = list(obstacle.exterior.coords)  # Get coordinates of polygon
-#     obstacle_sizes.append(len(vertices))
-#     for vertex in vertices:
-#         obstacle_vertices.append(vertex)
-print(f"data prep1 dt: {time.time() - t}")
-t = time.time()
-# Combine trajectory data and obstacle data (each trajectory-obstacle pair)
-num_trajectory_poses = len(trajectory)
-num_obstacles = len(obstacles)
-print(f"data prep2 dt: {time.time() - t}")
-### do this twice , cause the first execution takes way longer than the consecutive ones
-##########
-prepared_obstacles = preprocess_obstacles(obstacles, MAX_OBSTACLE_VERTICES)
-COMBINED_DATA_LENGTH, combined_data = prepare_combined_data(trajectory, prepared_obstacles, MAX_OBSTACLE_VERTICES)
-##########
-t = time.time()
-prepared_obstacles = preprocess_obstacles(obstacles, MAX_OBSTACLE_VERTICES)
-COMBINED_DATA_LENGTH, combined_data = prepare_combined_data(trajectory, prepared_obstacles, MAX_OBSTACLE_VERTICES)
-print(f"data prep3 dt: {time.time() - t}")
-t = time.time()
-combined_data = np.array(combined_data, dtype=np.float32)
-num_pairs = combined_data.shape[0]
-footprint_coords = np.zeros((len(combined_data), 8), dtype=np.float32)
-results = np.zeros((len(combined_data),), dtype=np.int32)
-print(f"data prep4 dt: {time.time() - t}")
+for i in range(0,2):
+    t0 = time.time()
+    # Combine trajectory data and obstacle data (each trajectory-obstacle pair)
+    num_trajectory_poses = len(trajectory)
+    num_obstacles = len(obstacles)
+    ##########
+    t1 = time.time()
+    prepared_obstacles = preprocess_obstacles(obstacles, MAX_OBSTACLE_VERTICES)
+    t1end = time.time() - t1
+    t2 = time.time()
+    # COMBINED_DATA_LENGTH, combined_data = prepare_combined_data_vectorized(trajectory, prepared_obstacles) ### slower
+    COMBINED_DATA_LENGTH, combined_data = prepare_combined_data_optimized(trajectory, prepared_obstacles)
+    t2end = time.time() - t2
+    t3 = time.time()
+    num_pairs = len(combined_data)
+    footprint_coords = np.zeros((num_pairs, 8), dtype=np.float32)
+    results = np.zeros((num_pairs,), dtype=np.int32)
+    t3end = time.time() - t3
+    if i > 0:
+        print(f"data preprocess obstacles dt: {t1end}")
+        print(f"data prepae combined data dt: {t2end}")
+        print(f"data malloc result buffers : {t3end}")
+        print(f"data prep sum dt: {time.time() - t0}")
 ########################################################################################################
 ### opencl context setup
 platform = cl.get_platforms()[0]
@@ -127,13 +140,14 @@ with open('kernel.cl', 'r') as f:
     program_src = re.sub(pattern, f"#define MAX_OBSTACLE_VERTICES {MAX_OBSTACLE_VERTICES}", program_src)
     pattern = r'#define COMBINED_DATA_LENGTH \d+'
     program_src = re.sub(pattern, f"#define COMBINED_DATA_LENGTH {COMBINED_DATA_LENGTH}", program_src)
+# Iterate through the results to find all combined checks
 
 ### build kernel
 program = cl.Program(context, program_src).build()
 ### use prepared data formats to create opencl buffers with corresponding sizes
 combined_data_buffer = cl.Buffer(context, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=combined_data)
 footprint_coords_buffer = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, footprint_coords.nbytes)
-result_buffer = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, num_pairs * np.dtype(np.int32).itemsize)
+result_buffer = cl.Buffer(context, cl.mem_flags.WRITE_ONLY, num_pairs * results.dtype.itemsize)
 ########################################################################################################
 ### kernel execution and time measurement
 n = 30
