@@ -65,14 +65,16 @@ def interpolate_waypoints(waypoints, num_points=10):
     interpolated_points = list(zip(x_new, y_new))
     return interpolated_points
 
-def posesFromPoints(points):
+def posesFromPoints(points, invertxy=False):
     poses = []
     for i in range(len(points)-1):
         x, y = points[i]
         x_next, y_next = points[i + 1]
         ### invert x and y cause of image coordinates?
-        # theta = np.arctan2(y_next - y, x_next - x)
-        theta = np.arctan2(x_next - x, y_next - y)
+        if invertxy:
+            theta = np.arctan2(x_next - x, y_next - y)
+        else:
+            theta = np.arctan2(y_next - y, x_next - x)
         poses.append((x,y,theta))
     poses.append((points[-1][0], points[-1][1], theta))
     return np.vstack([poses])

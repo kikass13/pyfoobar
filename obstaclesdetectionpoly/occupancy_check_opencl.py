@@ -84,8 +84,8 @@ prepare_combined_data_optimized(np.zeros((1000,3), dtype=np.float32), np.zeros((
 ########################################################################################################
 ### example setup for footprint, waypoints and obstacles
 # Example constants
-footprint_length = 1.0
-footprint_width = 0.5
+footprint_length = 4.0
+footprint_width = 2.0
 # Example trajectory poses and obstacles
 waypoints = np.array([(20.0, 1.0), (15.0, -2.0), (17.0, 12.0), (23.0, 20.0)])  # List of (x, y) waypoints
 waypoints = interpolate_waypoints(waypoints, num_points=300)
@@ -197,8 +197,8 @@ ax = drawPolygons(ax, obstacles)
 for p in unique_noncollision_footprints:
     if p not in unique_collision_footprints:
         ax = drawPolygon(ax, p, "blue")
-    else:
-        ax = drawPolygon(ax, p, "violet")
+for p in unique_collision_footprints:
+    ax = drawPolygon(ax, p, "violet")
 ax = drawTrajectoryCollisions(ax, trajectory, unique_collision_indices)
 plt.show()
 
