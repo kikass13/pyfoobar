@@ -7,6 +7,8 @@ import time
 MIN_EXPECTED_OBJECT_SPEED = 0.0
 MAX_EXPECTED_OBJECT_SPEED = 30.0
 
+APPROXIMATE_CIRCLE = False
+
 def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
@@ -40,7 +42,6 @@ def draw_rotated_rectangle(image, center, size, angle_deg, value=1.0):
 def normalize_grid(grid):
     """Normalize the grid so that its maximum value is 1.0."""
     return np.clip(grid / (grid.max() + 1e-5), 0, 1)
-
 
 class MyObject:
     def __init__(self, position, velocity, acceleration, size ):
@@ -99,35 +100,39 @@ def process_object(n_steps, object_grid, obj : MyObject, cfg : MyConfig):
 
     first = np.zeros_like(object_grid)
     for step in range(n_steps):
+        stepT = time.time()
         t = step / (n_steps - 1)
         elapsed_time, cost, newPos, newVel, newAcc, newYaw, newSize = calculate_object_step_parameter(t, dt, obj.position, obj.velocity, obj.acceleration, obj.size, cfg.DT_FOOTPRINT_SCALE_FACTOR )
         temp = np.zeros_like(object_grid, dtype=np.uint8)
-        processing_t1 = time.time()
         yaw_deg = np.degrees(newYaw)
-        draw_rotated_rectangle(temp, (newPos[0], newPos[1]), (newSize[0], newSize[1]), yaw_deg, value=255)
-        # print(f"dt draw: {time.time() - processing_t1}")
-        # timesDraw.append(time.time() - processing_t1)
-        # processing_t2 = time.time()
+        if APPROXIMATE_CIRCLE:
+            ix, iy = (int(newPos[0]), int(newPos[1]))
+            if 0 <= ix < object_grid.shape[1] and 0 <= iy < object_grid.shape[0]:
+                cv2.circle(temp, (ix,iy), radius=int(np.ceil(newSize[0])), color=255, thickness=-1)
+        else:
+            draw_rotated_rectangle(temp, (newPos[0], newPos[1]), (newSize[0], newSize[1]), yaw_deg, value=255)
         sigma = compute_adaptive_speed_to_X(obj.speed, cfg.min_sigma, cfg.max_sigma)
         blurred = cv2.GaussianBlur(temp.astype(np.float32), cfg.blur_kernel, sigmaX=sigma)
-        # timesGauss.append(time.time() - processing_t2)
         object_grid += blurred / 255.0 * cost
-        # timesStep.append(time.time() - processing_tstep)
         ### remember first result as mask for later
         if step == 0:
             first = blurred.copy()
-
     return object_grid, first
 
 def main():
     # Grid size
-    H, W = 200, 150
+    resolution = 1.0
+    bounds = np.array([100, 50])
+    
+    # H, W = 50, 25
+    GRID_SIZE = bounds / resolution
+    H, W = (int(GRID_SIZE[0]), int(GRID_SIZE[1]))
     grid = np.zeros((H, W), dtype=np.float32)
 
     # Object parameters
     n_objects = 30
     np.random.seed(0)
-    positions = np.random.uniform(25, 175, size=(n_objects, 2))
+    positions = np.random.uniform(0, H, size=(n_objects, 2))
     angles = np.random.uniform(0, 2 * np.pi, size=n_objects)
     speeds = np.random.uniform(0, 30, size=n_objects)
     accelerations = np.random.uniform(-2, 2, size=(n_objects, 2))  # ax, ay per object
@@ -141,8 +146,8 @@ def main():
     MIN_SIGMA = 2.0
     MAX_SIGMA = 5.0
 
-    BASE_WIDTH = 2.0
-    BASE_LENGTH = 4.5
+    BASE_WIDTH = 1.5
+    BASE_LENGTH = 3.0
 
     start_points = []
     vel_vectors = []
@@ -206,7 +211,6 @@ def main():
         plt.arrow(cx, cy, ax , ay, head_width=1.0, head_length=1.0, fc='blue', ec='blue')
     ### mask for dynamic objects
     # dynamic_mask = grid > 0.0 ### compelte path
-    dynamic_mask_result = np.zeros_like(grid)
     dynamic_mask_result = np.zeros_like(grid)
     for mask in first_grids:
         dynamic_mask_result += mask ### still a cost image, add all first layers together
