@@ -4,12 +4,12 @@ import numpy as np
 from enum import Enum
 
 EPS = 0.1
-LOOKAHEAD_DIST = 5.0  # m
+LOOKAHEAD_DIST = 10.0  # m
 WAIT_TIME = 2.0
 DT = 0.1
 VEL_LAG = 0.3  # simulated PID lag
 V_MAX = 1.5
-REVERSAL_DISTANCE_THRESHOLD = 0.3  # m
+REVERSAL_DISTANCE_THRESHOLD = 1.0  # m
 
 class MotionState(Enum):
     MOVING = 1
@@ -29,6 +29,7 @@ class ReversalController:
         self.wait_points = wait_points
         self.stop_start_time = None
         self.resume_idx = None
+        self.intended_sign = None
 
     def close_enough_to_reversal(self, current_pos, next_reversal_idx, global_traj):
         if next_reversal_idx is None:
@@ -68,6 +69,7 @@ class ReversalController:
     
     def update(self, global_traj, global_idx, current_pos, measured_vel, sim_time):
         next_reversal_idx = self.find_next_reversal_index(global_idx, global_traj)
+        reverse_maneuver_done = False
 
         max_idx = len(global_traj) - 1
         local_traj = []
@@ -75,7 +77,9 @@ class ReversalController:
         if self.state == MotionState.MOVING:
             if next_reversal_idx is not None and self.close_enough_to_reversal(current_pos, next_reversal_idx, global_traj):
                 self.state = MotionState.STOP_PENDING
-                self.resume_idx = next_reversal_idx
+                # self.resume_idx = next_reversal_idx
+                # Store intended sign (sign of velocity *after* reversal)
+                self.intended_sign = np.sign(global_traj[next_reversal_idx][2])
                 segment_end = min(next_reversal_idx + 1, max_idx)
                 local_traj = [(x, y, 0.0) for (x, y, v) in global_traj[global_idx:segment_end]]
                 if len(local_traj) < self.wait_points:
@@ -92,7 +96,8 @@ class ReversalController:
                 self.stop_start_time = sim_time
                 local_traj = [(current_pos[0], current_pos[1], 0.0)] * self.wait_points
             else:
-                segment_end = min(self.resume_idx + 1, max_idx)
+                # segment_end = min(self.resume_idx + 1, max_idx)
+                segment_end = min(next_reversal_idx + 1, max_idx)
                 local_traj = [(x, y, 0.0) for (x, y, v) in global_traj[global_idx:segment_end]]
                 if len(local_traj) < self.wait_points:
                     if len(local_traj) == 0:  # safeguard
@@ -104,27 +109,24 @@ class ReversalController:
         elif self.state == MotionState.WAITING:
             if abs(measured_vel) < EPS and (sim_time - self.stop_start_time) >= self.wait_time:
                 self.state = MotionState.MOVING
-                ##########
-                # Skip the actual reversal point when resuming
-                start_idx = self.resume_idx
-                # Determine intended velocity sign after reversal
-                if start_idx < max_idx:
-                    intended_sign = np.sign(global_traj[start_idx + 1][2])
-                else:
-                    intended_sign = np.sign(global_traj[start_idx][2])
-                # Move start_idx forward until velocity sign matches intended_sign
-                while start_idx < max_idx and np.sign(global_traj[start_idx][2]) != intended_sign:
-                    start_idx += 1
-                # If for some reason we reach end, try moving backward
-                while start_idx > 0 and np.sign(global_traj[start_idx][2]) != intended_sign:
-                    start_idx -= 1
-                ##########
+                # Use stored intended_sign to find start_idx
+                start_idx = None
+                if self.intended_sign is not None:
+                    for idx in range(global_idx, len(global_traj)):
+                        if np.sign(global_traj[idx][2]) == self.intended_sign:
+                            start_idx = idx
+                            break
+                if start_idx is None:
+                    start_idx = global_idx
+                reverse_maneuver_done = True
+
                 lookahead_end = self.get_lookahead_end(global_traj, start_idx, LOOKAHEAD_DIST, None, max_idx)
                 local_traj = global_traj[start_idx:lookahead_end]
+                self.intended_sign = None  # reset after resuming
             else:
                 local_traj = [(current_pos[0], current_pos[1], 0.0)] * self.wait_points
 
-        return local_traj, next_reversal_idx
+        return local_traj, next_reversal_idx, reverse_maneuver_done
 
     def drive_state(self, cmd_vel):
         if abs(cmd_vel) < EPS:
@@ -235,7 +237,9 @@ def advance_along_path(robot_pos, global_idx, measured_vel, trajectory, dt):
 def update(frame):
     global robot_pos, global_idx, sim_time, measured_vel, cmd_vel
 
-    local_traj, next_rev_idx = controller.update(global_trajectory, global_idx, robot_pos, measured_vel, sim_time)
+    local_traj, next_rev_idx, reverse_maneuver_done = controller.update(global_trajectory, global_idx, robot_pos, measured_vel, sim_time)
+    if reverse_maneuver_done:
+        global_idx = next_rev_idx + 1
     
     cmd_vel = local_traj[0][2] if len(local_traj) > 0 else 0.0
     measured_vel += (cmd_vel - measured_vel) * VEL_LAG
