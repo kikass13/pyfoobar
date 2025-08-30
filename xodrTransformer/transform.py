@@ -71,6 +71,11 @@ def parse_crs_from_header(root):
     lon0 = float(re.search(r"\+lon_0=([0-9\.\-e]+)", proj_str).group(1))
     return crs_map, x0_orig, y0_orig, lon0
 
+def getHeader(root):
+    header = root.find("./header")
+    return header.attrib
+
+
 def get_transformer_from_header(root):
     crs_map, _, _, _ = parse_crs_from_header(root)
     crs_wgs84 = pyproj.CRS.from_epsg(4326)
@@ -125,18 +130,31 @@ def get_declination_wmm(lat, lon, alt_m=0, date=None):
     model = wmm2020.WMM()
     return model.calc(lat, lon, alt_m, date)['decl']
 
-def get_declination_noaa(lat, lon, apikey='zNEw7', date=None):
-    if date is None:
-        date = datetime.now().strftime("%Y-%m-%d")
+def get_declination_noaa(lat, lon, apikey='zNEw7', date=datetime.now()):
+    ### Parameter 	Required 	Default 	Description
+    ### key	            yes		            To get the API key, register at https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
+    ### lat1	        yes		            decimal degrees or degrees minutes seconds: -90.0 to 90.0
+    ### lon1	        yes		            decimal degrees or degrees minutes seconds: -180.0 to 180.0
+    ### model		               WMM	    which magnetic reference model to use: 'WMM', 'WMMHR', or 'IGRF'
+    ###                                     For 'EMM' use base url: https://emmcalc.geomag.info with paramater magneticComponent=d
+    ### startYear		        current year	year part of calculation date; WMM: 2024-2029, WMMHR: 2024-2029, IGRF: 1590-2029
+    ### startMonth		        current month	month part of calculation date: 1 - 12
+    ### startDay		        current day	    day part of calculation date: 1 - 31
+    ### resultFormat	        html	        format of calculation results: 'html', 'csv', 'xml', 'json'
     url = "https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination"
     params = {
+        "key": apikey,
+
         "lat1": lat,
         "lon1": lon,
-        "key": apikey,
+
         "resultFormat": "json",
-        "date": date,
-        "altitude": 0,
-        "model": "WMM"
+        "startYear": date.year,
+        "startMonth": date.month,
+        "startDay": date.day,    
+
+        # "model": "WMM"
+        "model": "IGRF"
     }
     resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
@@ -206,6 +224,7 @@ def main():
     parser.add_argument("--update-georef", action="store_true", default=True)
     parser.add_argument("--update-extents", action="store_true", default=True)
     parser.add_argument("--declination-source", choices=["none","wmm","online"], default="none")
+    parser.add_argument("--declination-date", default=None)
 
     args = parser.parse_args()
     if args.out_path == "":
@@ -217,23 +236,32 @@ def main():
         print(f"Input file not found: {in_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Apply magnetic declination
-    decl = 0.0
-    if args.declination_source == "wmm":
-        decl = get_declination_wmm(args.origin_lat, args.origin_lon)
-        print(f"Magnetic declination (WMM) = {decl:.2f}°")
-    elif args.declination_source == "online":
-        decl = get_declination_noaa(args.origin_lat, args.origin_lon)
-        print(f"Magnetic declination (NOAA online) = {decl:.2f}°")
-    args.yaw_deg += decl
-    print(f"Total yaw offset = {args.yaw_deg:.2f}°")
-
     # Parse map
     try:
         tree = ET.parse(str(in_path))
+        header = getHeader(tree)
     except ET.XMLSyntaxError as e:
         print(f"XML parse error: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Apply magnetic declination
+    if args.declination_source != "none":
+        ### define date to use
+        date = args.declination_date
+        if date == None:
+            ## take time from header
+
+            date = datetime.strptime(header["date"], "%d-%m-%y")
+        print(f"Magnetic declination modeled at time {date}")
+        decl = 0.0
+        if args.declination_source == "wmm":
+            decl = get_declination_wmm(args.origin_lat, args.origin_lon, date=date)
+            print(f"Magnetic declination (WMM) = {decl:.2f}°")
+        elif args.declination_source == "online":
+            decl = get_declination_noaa(args.origin_lat, args.origin_lon, date=date)
+            print(f"Magnetic declination (NOAA online) = {decl:.2f}°")
+    args.yaw_deg += decl
+    print(f"Total yaw offset = {args.yaw_deg:.2f}°")
 
     root = tree.getroot()
     transformer = get_transformer_from_header(root)
