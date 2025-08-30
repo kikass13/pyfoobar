@@ -1,0 +1,37 @@
+stations:
+  - id: bs1
+    name: Hammilton
+    platforms:
+      - id: p1
+        name: "P1"
+        segments:
+          - roadId: 1003600
+            sStart: 20.0
+            sEnd: 24.5
+            side: right
+          - roadId: 1003600
+            sStart: 25.5
+            sEnd: 30.0
+            side: right
+
+  - id: bs2
+    name: Huffington
+    platforms:
+      - id: p1
+        name: "P1"
+        segments:
+          - roadId: 1000700
+            sStart: 5.0
+            sEnd: 20.0
+            side: left
+
+  - id: bs3
+    name: Hooligan
+    platforms:
+      - id: p1
+        name: "P1"
+        segments:
+          - roadId: 1001500
+            sStart: 25.0
+            sEnd: 35.0
+            side: right
